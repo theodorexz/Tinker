@@ -4,6 +4,7 @@
   "description": "Default desktop capability for Tinker MC",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "updater:default"
   ]
 }

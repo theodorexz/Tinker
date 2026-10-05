@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Ore & Jar",
+  "productName": "Tinker MC",
   "version": "0.1.0",
   "identifier": "dev.tinker.app",
   "build": {
@@ -25,7 +25,8 @@
     "targets": [
       "nsis"
     ],
-    "publisher": "tinker", 
+    "createUpdaterArtifacts": true,
+    "publisher": "tinker",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,5 +34,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDNDk5OTU2RjU5MDhFNjUKUldSbGpwRDFWcGxKakRwZVoxMkVBT2ZXZnZWQUd2Qi9QMjhXUUJoQ0RtRFJDdHhXcUMvNHRZYXMK",
+      "endpoints": [
+        "https://github.com/theodorexz/Tinker/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

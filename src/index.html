@@ -599,6 +599,9 @@
     <div class="tagline">Modrinth search and your installed mods, managed straight from Crafty</div>
     <button class="btn ghost small installed-toggle" id="installedToggleBtn" type="button" title="Open Mod Explorer">Explorer <span class="count-badge" id="installedCountBadge">0</span></button>
     <div class="conn-pill" id="connPill"><span class="dot"></span><span id="connLabel">not connected</span></div>
+    <button class="btn ghost small" id="checkAppUpdateBtn" type="button">
+      Check for updates
+    </button>
   </div>
 </header>
 
@@ -832,6 +835,11 @@
 <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
 <script>
+
+    setTimeout(() => {
+      checkAppUpdate(false);
+    }, 2500);
+
 (function(){
   "use strict";
 
@@ -3902,6 +3910,63 @@
   });
 
 })();
+
+async function checkAppUpdate(showNoUpdate = true) {
+  if (!window.__TAURI__?.core?.invoke) {
+    if (showNoUpdate) {
+      toast("Updates are only available in the desktop app.", "warn");
+    }
+    return;
+  }
+
+  const btn = document.getElementById("checkAppUpdateBtn");
+
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+    }
+
+    const update = await window.__TAURI__.core.invoke("check_for_update");
+
+    if (!update) {
+      if (showNoUpdate) {
+        toast("Tinker is up to date.", "ok");
+      }
+      return;
+    }
+
+    const install = confirm(
+      "Tinker " + update.version + " is available.\n\n" +
+      "Current version: " + update.currentVersion + "\n" +
+      "New version: " + update.version + "\n\n" +
+      (update.notes || "") +
+      "\n\nInstall it now?"
+    );
+
+    if (!install) return;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Updating…";
+    }
+
+    await window.__TAURI__.core.invoke("install_update");
+
+  } catch (e) {
+    toast("Update check failed: " + (e?.message || e), "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Check for updates";
+    }
+  }
+}
+
+document
+  .getElementById("checkAppUpdateBtn")
+  ?.addEventListener("click", () => checkAppUpdate(true));
+
 </script>
 
 </body>

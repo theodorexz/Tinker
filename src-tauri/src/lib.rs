@@ -1,3 +1,4 @@
+use tauri_plugin_updater::UpdaterExt;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -100,7 +101,66 @@ async fn ping() -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![crafty_request, ping])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            native_http_request,
+            crafty_request,
+            ping,
+            check_for_update,
+            install_update
+        ])
         .run(tauri::generate_context!())
-        .expect("error while running Ore & Jar");
+        .expect("error while running Tinker");
+}
+
+use serde::Serialize;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_updater::UpdaterExt;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+}
+
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(update.map(|u| UpdateInfo {
+        version: u.version,
+        current_version: u.current_version,
+        notes: u.body,
+    }))
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let Some(update) = update else {
+        return Err("No update is currently available.".to_string());
+    };
+
+    update
+        .download_and_install(
+            |_chunk_length, _content_length| {},
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.restart();
 }
