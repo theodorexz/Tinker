@@ -2960,7 +2960,9 @@
       }
 
       // Prefer a small image stored inside the JAR. This is local work and does not touch Modrinth.
-      const iconEntries = entriesNeedingAnalysis.filter(e => e._scanBuffer);
+      // Icon extraction is completely local. Include manually linked entries too so a
+      // different computer can rebuild the JAR preview from the current server copy.
+      const iconEntries = installedMods.filter(e => e._scanBuffer);
       for (let i = 0; i < iconEntries.length; i += 8) {
         const slice = iconEntries.slice(i, i + 8);
         await Promise.all(slice.map(async entry => {
@@ -3213,24 +3215,80 @@
       await requireServerStopped("update a mod");
       const { version, file } = chosen || await findMatchingVersion(entry.projectId);
       if (!chosen && version.id === entry.versionId) { toast(entry.title + " is already up to date", "ok"); return; }
+
       const buf = await downloadModrinthFile(file, "update");
       const cfg = getConfig();
       await requireServerStopped("update a mod");
+
+      // Keep the Modrinth identity attached to the NEW JAR, not just the old filename/hash.
+      // This is especially important for manually linked mods: a version update creates a
+      // different JAR hash, so the server-side link must be repointed before the rescan.
+      let newSha1 = "";
+      let newSha512 = "";
+      try { newSha1 = await sha1Hex(buf); } catch (_) {}
+      try { newSha512 = await sha512Hex(buf); } catch (_) {}
+
+      // Rebuild the local preview from the newly downloaded JAR. This is local work and
+      // avoids losing the nice in-JAR icon after an update/rescan.
+      let newLocalIconDataUrl = entry.localIconDataUrl || "";
+      let newLocalIconPath = entry.localIconPath || "";
+      try {
+        const localIcon = await findLocalJarIcon(buf, entry.jarMetadata || null);
+        if (localIcon) {
+          newLocalIconDataUrl = localIcon.dataUrl;
+          newLocalIconPath = localIcon.path;
+        }
+      } catch (_) {}
+
       await uploadJarToServer(cfg, file, buf);
+
+      const oldPath = entry.filePath || joinServerPath(cfg.modsPath, entry.filename);
       if (entry.filename && entry.filename !== file.filename) {
         try {
           await requireServerStopped("finish a mod update");
-          await deleteJarFromServer(cfg, entry.filePath || joinServerPath(cfg.modsPath, entry.filename));
+          await deleteJarFromServer(cfg, oldPath);
         }
-        catch (e) { toast("Installed " + version.version_number + ", but couldn't remove the old file (" + entry.filename + ") — delete it by hand.", "warn"); }
+        catch (e) {
+          toast("Installed " + version.version_number + ", but couldn't remove the old file (" + entry.filename + ") — delete it by hand.", "warn");
+        }
       }
-      upsertRegistry(Object.assign({}, entry, {
-        versionId: version.id, versionNumber: version.version_number, versionType: version.version_type,
-        filename: file.filename, gameVersions: version.game_versions, source: "installed",
-      }));
+
+      const updatedEntry = Object.assign({}, entry, {
+        versionId: version.id,
+        versionNumber: version.version_number,
+        versionType: version.version_type,
+        filename: file.filename,
+        filePath: joinServerPath(cfg.modsPath, file.filename),
+        fileSize: buf.byteLength,
+        gameVersions: version.game_versions || [],
+        loaderList: version.loaders || [],
+        matchedFilename: file.filename,
+        dependencies: Array.isArray(version.dependencies) ? version.dependencies : [],
+        sha1: newSha1 || entry.sha1 || "",
+        sha512: newSha512 || entry.sha512 || "",
+        localIconDataUrl: newLocalIconDataUrl,
+        localIconPath: newLocalIconPath,
+        source: entry.source === "server-link" ? "server-link" : "installed",
+      });
+
+      // Only repoint the server-side manual link when this file was manually linked.
+      // Automatic Modrinth matches do not need to be turned into manual links.
+      if (entry.source === "server-link" || entry.matchType === "manual") {
+        updatedEntry._scanBuffer = buf;
+        try {
+          await saveServerModLink(updatedEntry);
+        } finally {
+          delete updatedEntry._scanBuffer;
+        }
+      }
+
+      upsertRegistry(updatedEntry);
+      installedMods = installedMods.map(e => e === entry || e.filename === entry.filename ? updatedEntry : e);
       toast(entry.title + " set to v" + version.version_number, "ok");
       delete latestCache[entry.projectId];
+
       if (!options.skipRescan) await scanInstalledMods();
+      else renderSidebar();
     } catch (e) {
       toast("Update failed for " + entry.title + ": " + e.message, "error");
       if (options.rethrow) throw e;
