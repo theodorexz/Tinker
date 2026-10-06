@@ -1411,6 +1411,7 @@
     } else if (typeof opts?.body === "string") {
       bodyBase64 = base64FromArrayBuffer(new TextEncoder().encode(opts.body).buffer);
     }
+
     const payload = {
       url,
       method: opts?.method || "GET",
@@ -1419,17 +1420,10 @@
       insecureTls: Boolean(insecureTls),
     };
 
-    // Keep compatibility with both the original Tauri bridge command
-    // (crafty_request) and the newer generic command (native_http_request).
-    try {
-      return await window.__TAURI__.core.invoke("native_http_request", { args: payload });
-    } catch (err) {
-      const message = String(err?.message || err || "");
-      if (/command\s+native_http_request\s+not found/i.test(message) || /unknown command/i.test(message)) {
-        return window.__TAURI__.core.invoke("crafty_request", { args: payload });
-      }
-      throw err;
-    }
+    // The Rust app already provides the fully implemented crafty_request
+    // command. Use it directly instead of the placeholder native_http_request
+    // compatibility command that was introduced during the updater work.
+    return window.__TAURI__.core.invoke("crafty_request", { args: payload });
   }
 
   async function nativeHttpFetch(url, opts, insecureTls) {
@@ -1618,6 +1612,13 @@
   // ---------- installed registry + live Crafty mod scanner ----------
   const MOD_META_KEY = "oreAndJarModMetadataV3";
 
+  // Manual Modrinth links are stored on the Crafty server, keyed by exact JAR
+  // hashes, so the association follows the server to other computers.
+  const SERVER_LINKS_FILENAME = ".tinker-mod-links.json";
+  let serverModLinks = Object.create(null);
+  let serverModLinksCacheKey = "";
+  let serverModLinksLoadPromise = null;
+
   function registryKey(cfg) { return (cfg.craftyUrl || "") + "|" + (cfg.serverId || ""); }
   function loadAllRegistries() { try { return JSON.parse(localStorage.getItem(REG_KEY) || "{}"); } catch (e) { return {}; } }
   function getRegistryList() { const all = loadAllRegistries(); return all[registryKey(getConfig())] || []; }
@@ -1662,6 +1663,152 @@
       }
       localStorage.setItem(MOD_META_KEY, JSON.stringify(safe));
     } catch (e) {}
+  }
+
+  function serverLinksPath() { return SERVER_LINKS_FILENAME; }
+
+  function encodeUtf8(text) {
+    return new TextEncoder().encode(String(text)).buffer;
+  }
+
+  async function downloadCraftyRawFileBuffer(cfg, filePath) {
+    const clean = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!clean) throw new Error("Empty Crafty file path");
+    const encodedWhole = encodeURIComponent(clean);
+    const encodedSegments = clean.split("/").map(encodeURIComponent).join("/");
+    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
+    let lastError = null;
+    for (const endpoint of [endpointBase + encodedWhole, endpointBase + encodedSegments]) {
+      try {
+        const res = await craftyFetch(cfg, endpoint, {method:"GET", headers:{"Accept":"application/octet-stream,application/json,*/*"}});
+        const buf = await res.arrayBuffer();
+        if (res.ok) return buf;
+        const detail = buf.byteLength ? new TextDecoder().decode(new Uint8Array(buf)).replace(/\s+/g," ").slice(0,220) : "";
+        const err = new Error("HTTP " + res.status + (detail ? " — " + detail : ""));
+        err.status = res.status;
+        lastError = err;
+        if (res.status === 404) break;
+      } catch (e) { lastError = e; }
+    }
+    throw lastError || new Error("Crafty file download failed");
+  }
+
+  function normalizeServerLinkRecord(record) {
+    if (!record || !record.projectId) return null;
+    return {
+      projectId:String(record.projectId), slug:String(record.slug || ""), title:String(record.title || ""),
+      author:String(record.author || ""), iconUrl:String(record.iconUrl || ""), description:String(record.description || ""),
+      downloads:Number(record.downloads || 0), followers:Number(record.followers || 0),
+      categories:Array.isArray(record.categories) ? record.categories : [],
+      versionId:String(record.versionId || ""), versionNumber:String(record.versionNumber || ""),
+      versionType:String(record.versionType || ""), gameVersions:Array.isArray(record.gameVersions) ? record.gameVersions : [],
+      loader:String(record.loader || ""), loaderList:Array.isArray(record.loaderList) ? record.loaderList : [],
+      matchedFilename:String(record.matchedFilename || ""),
+      dependencies:Array.isArray(record.dependencies) ? record.dependencies : [],
+      sha1:String(record.sha1 || ""), sha512:String(record.sha512 || ""),
+      filePath:String(record.filePath || ""), fileSize:Number(record.fileSize || 0),
+      linked:true, source:"server-link", confidence:100, matchType:"manual", detectionSource:"Server-side manual link"
+    };
+  }
+
+  async function loadServerModLinks(cfg, force = false) {
+    const key = registryKey(cfg);
+    if (!force && key === serverModLinksCacheKey && serverModLinksLoadPromise) return serverModLinksLoadPromise;
+    serverModLinksCacheKey = key;
+    serverModLinksLoadPromise = (async () => {
+      serverModLinks = Object.create(null);
+      try {
+        const buffer = await downloadCraftyRawFileBuffer(cfg, serverLinksPath());
+        const data = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer)));
+        const links = data && typeof data.links === "object" && data.links ? data.links : data;
+        if (links && typeof links === "object") {
+          for (const [linkKey, value] of Object.entries(links)) {
+            const normalized = normalizeServerLinkRecord(value);
+            if (normalized) serverModLinks[linkKey] = normalized;
+          }
+        }
+      } catch (e) {
+        // A missing file simply means this server has no manual links yet.
+        if (Number(e?.status) !== 404) serverModLinks = Object.create(null);
+      }
+      return serverModLinks;
+    })();
+    return serverModLinksLoadPromise;
+  }
+
+  function getServerModLink(entry) {
+    if (!entry) return null;
+    const keys = [];
+    if (entry.sha512) keys.push("sha512:" + String(entry.sha512).toLowerCase());
+    if (entry.sha1) keys.push("sha1:" + String(entry.sha1).toLowerCase());
+    if (entry.filePath) keys.push("path:" + normalizeServerPath(entry.filePath));
+    if (entry.filename) keys.push("filename:" + String(entry.filename).toLowerCase());
+    for (const key of keys) {
+      const record = serverModLinks[key];
+      if (!record) continue;
+      // Filename/path is only a fallback for cases where Crafty could not provide
+      // the JAR bytes. Prefer an exact hash whenever one is available.
+      if ((key.startsWith("path:") || key.startsWith("filename:")) && record.fileSize && entry.fileSize && Number(record.fileSize) !== Number(entry.fileSize)) continue;
+      return record;
+    }
+    return null;
+  }
+
+  async function saveServerModLink(entry) {
+    const cfg = getConfig();
+    if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) throw new Error("Crafty connection is not configured");
+
+    // Prefer bytes already obtained by the Explorer. If they are not available,
+    // do NOT try Crafty's individual /files/download/<mods/file.jar> endpoint: on
+    // some Crafty 4 installations that endpoint cannot resolve relative JAR paths.
+    // Instead, fetch the whole mods-directory archive (the same path used by the
+    // scanner) and extract this JAR locally.
+    let buffer = entry?._scanBuffer || null;
+    if (!buffer && (!entry.sha1 || !entry.sha512)) {
+      try {
+        const archiveBuffer = await downloadCraftyDirectoryArchive(cfg, cfg.modsPath || "mods");
+        const archive = await buildJarBufferMapFromArchive(archiveBuffer, cfg.modsPath || "mods");
+        const relative = archiveRelativeName(entry.filePath || entry.filename, cfg.modsPath || "mods");
+        const candidates = [
+          relative, normalizeServerPath(relative), entry.filePath,
+          normalizeServerPath(entry.filePath), entry.filename, normalizeServerPath(entry.filename)
+        ].filter(Boolean);
+        for (const key of candidates) {
+          if (archive.map.has(key)) { buffer = archive.map.get(key); break; }
+        }
+        if (!buffer) {
+          const byBase = archive.basenameMap.get(normalizeServerPath(entry.filename)) || archive.basenameMap.get(entry.filename) || [];
+          if (byBase.length === 1) buffer = byBase[0];
+        }
+      } catch (_) {
+        // Filename/path persistence below is the final fallback.
+      }
+    }
+
+    const sha1 = entry.sha1 || (buffer ? await sha1Hex(buffer) : "");
+    const sha512 = entry.sha512 || (buffer ? await sha512Hex(buffer) : "");
+    entry.sha1 = sha1;
+    entry.sha512 = sha512;
+    const record = normalizeServerLinkRecord(Object.assign({}, entry, {
+      filePath:entry.filePath || "", fileSize:Number(entry.fileSize || buffer?.byteLength || 0)
+    }));
+    if (!record) throw new Error("Invalid Modrinth link");
+
+    const current = {};
+    for (const [linkKey, value] of Object.entries(serverModLinks)) current[linkKey] = value;
+    if (sha512) current["sha512:" + sha512.toLowerCase()] = record;
+    if (sha1) current["sha1:" + sha1.toLowerCase()] = record;
+    // Always keep a path/filename fallback so a manual link can still follow
+    // the server when the JAR bytes cannot be downloaded from Crafty.
+    if (entry.filePath) current["path:" + normalizeServerPath(entry.filePath)] = record;
+    if (entry.filename) current["filename:" + String(entry.filename).toLowerCase()] = record;
+
+    const payload = JSON.stringify({version:1, updatedAt:new Date().toISOString(), links:current}, null, 2);
+    await uploadBufferToServer(cfg, ".", SERVER_LINKS_FILENAME, encodeUtf8(payload));
+    serverModLinks = current;
+    serverModLinksCacheKey = registryKey(cfg);
+    serverModLinksLoadPromise = Promise.resolve(serverModLinks);
+    return record;
   }
 
   function formatBytes(bytes) {
@@ -2482,6 +2629,8 @@
       return;
     }
 
+    els.scanState.textContent = "loading saved server links…";
+    try { await loadServerModLinks(cfg, false); } catch (_) {}
     els.scanState.textContent = "scanning server files…";
     els.scanModsBtn.disabled = true;
     els.scanModsBtn.textContent = "…";
@@ -2539,7 +2688,21 @@
         }
         return base;
       });
-      const entriesNeedingAnalysis = installedMods.filter(e => !e._metadataCacheHit);
+
+      // Apply persistent manual links before any hash/metadata lookup. This lets a
+      // manual link survive even when Crafty cannot download individual JAR bytes.
+      for (const entry of installedMods) {
+        const savedLink = getServerModLink(entry);
+        if (savedLink) {
+          Object.assign(entry, savedLink, {
+            filename:entry.filename, filePath:entry.filePath, fileSize:entry.fileSize, modified:entry.modified,
+            linked:true, source:"server-link", confidence:100, matchType:"manual", detectionSource:"Server-side manual link",
+            _serverLinkMatch:true
+          });
+        }
+      }
+
+      const entriesNeedingAnalysis = installedMods.filter(e => !e._metadataCacheHit && !e._serverLinkMatch);
 
       // 2. Download the ENTIRE mods directory once. Crafty zips a directory for this endpoint.
       // This avoids one HTTP download per JAR, which was both slow and the main source of failures/429s.
@@ -2590,11 +2753,22 @@
           catch (e) { entry.hashError = e.message; }
         }));
       }
+      // Exact server-side manual links are authoritative and avoid repeat Modrinth lookups.
+      const serverLinkedEntries = new Set();
+      for (const entry of hashRecords) {
+        const savedLink = getServerModLink(entry);
+        if (savedLink) {
+          Object.assign(entry, savedLink, {sha1:entry.sha1, sha512:entry.sha512, linked:true, source:"server-link", confidence:100, matchType:"manual", detectionSource:"Server-side manual link"});
+          serverLinkedEntries.add(entry);
+        }
+      }
+
+      const automaticHashEntries = hashRecords.filter(e => !serverLinkedEntries.has(e));
       els.scanState.textContent = "matching Modrinth SHA-1 hashes…";
-      await bulkLookupModrinthHashes(hashRecords.map(e => e.sha1), "sha1");
+      await bulkLookupModrinthHashes(automaticHashEntries.map(e => e.sha1), "sha1");
 
       const sha512Needed = [];
-      for (const entry of hashRecords) {
+      for (const entry of automaticHashEntries) {
         const hit = entry.sha1 && await exactVersionForHash(entry.sha1, "sha1");
         if (hit && hit.project_id) entry._exactHashVersion = hit;
         else sha512Needed.push(entry);
@@ -2630,6 +2804,7 @@
       const unresolved = [];
       for (const entry of entriesNeedingAnalysis) {
         if (mySeq !== scanSeq) return;
+        if (serverLinkedEntries.has(entry)) continue;
         const version = exactVersionByEntry.get(entry);
         if (version) {
           const project = modrinthProjectCache[version.project_id];
@@ -2769,6 +2944,7 @@
           entry.iconSource = "modrinth";
         }
         delete entry._metadataCacheHit;
+        delete entry._serverLinkMatch;
       }
 
       buildDependencyRelationships();
@@ -3300,32 +3476,54 @@
       const hits = await loadMatches(initialQuery);
       openModal(body => {
         body.innerHTML = `<h3 style="margin:0 0 0.8rem;">Link ${escapeHtml(entry.filename)}</h3>
-          <div style="font-size:.78rem;color:var(--text-faint);margin-bottom:.8rem;">Search Modrinth and choose the project that this JAR belongs to. Linking stores the project for future scans and update checks.</div>
+          <div style="font-size:.78rem;color:var(--text-faint);margin-bottom:.8rem;">Search Modrinth and choose the project that this JAR belongs to. Linking is saved on the Crafty server so it follows you to other computers.</div>
           <div style="display:flex;gap:.5rem;margin-bottom:.7rem;"><input id="manualLinkSearch" type="search" value="${escapeHtml(initialQuery)}" placeholder="Search Modrinth projects…" style="flex:1"><button class="btn small" id="manualLinkSearchBtn" type="button">Search</button></div>
           <div id="matchList"></div>`;
         const listEl = body.querySelector("#matchList");
         const renderMatches = currentHits => {
           if (!currentHits.length) { listEl.innerHTML = `<div class="empty-state small">No Modrinth matches found. Try the exact mod name, ID, or slug.</div>`; return; }
           listEl.innerHTML = currentHits.map(hit => `<button type="button" class="vp-row" data-project="${escapeHtml(hit.project_id)}" style="width:100%;border:0;background:transparent;text-align:left;"><span class="installed-preview">${hit.icon_url ? `<img src="${escapeHtml(hit.icon_url)}" alt="">` : "MOD"}</span><span style="flex:1;min-width:0;"><strong style="display:block;">${escapeHtml(hit.title)}</strong><small style="color:var(--text-faint);">${escapeHtml(hit.author || "unknown")} · ${formatCount(hit.downloads)} downloads</small></span><span class="dependency-badge" style="margin-left:auto;background:#3a2d14;color:#ffc857;border:1px solid #765a22;">Link</span></button>`).join("");
-          listEl.querySelectorAll("[data-project]").forEach(btn => btn.addEventListener("click", () => {
-          const hit = currentHits.find(h => h.project_id === btn.dataset.project);
-          if (!hit) return;
-          const updated = Object.assign({}, entry, {projectId:hit.project_id, slug:hit.slug || "", title:hit.title, author:hit.author || "", iconUrl:hit.icon_url || "", description:hit.description || entry.description, downloads:hit.downloads || 0, categories:hit.categories || [], linked:true, source:"scanned", confidence:100, matchType:"manual", detectionSource:"Manually linked"});
-          installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
-          upsertRegistry(updated);
-          renderSidebar(); refreshSearchCardStates(); closeModal();
-          toast(hit.title + " linked to " + entry.filename, "ok");
-          findVersionContainingFilename(hit.project_id, entry.filename).then(found => {
-            if (found) {
-              const linkedEntry = installedMods.find(e => e.filename === entry.filename);
-              if (linkedEntry) {
-                Object.assign(linkedEntry,{versionId:found.version.id,versionNumber:found.version.version_number,versionType:found.version.version_type,gameVersions:found.version.game_versions||[],matchedFilename:found.file.filename});
-                upsertRegistry(linkedEntry);
-              }
-              renderSidebar();
+          listEl.querySelectorAll("[data-project]").forEach(btn => btn.addEventListener("click", async () => {
+            const hit = currentHits.find(h => h.project_id === btn.dataset.project);
+            if (!hit) return;
+            const updated = Object.assign({}, entry, {
+              projectId:hit.project_id, slug:hit.slug || "", title:hit.title, author:hit.author || "",
+              iconUrl:hit.icon_url || "", description:hit.description || entry.description,
+              downloads:hit.downloads || 0, categories:hit.categories || [], linked:true,
+              source:"server-link", confidence:100, matchType:"manual", detectionSource:"Server-side manual link"
+            });
+            btn.disabled = true;
+            try {
+              await saveServerModLink(updated);
+              installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
+              upsertRegistry(updated);
+              renderSidebar(); refreshSearchCardStates(); closeModal();
+              toast(hit.title + " linked and saved to this Crafty server", "ok");
+            } catch (saveError) {
+              installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
+              upsertRegistry(updated);
+              renderSidebar(); refreshSearchCardStates(); closeModal();
+              toast(hit.title + " linked locally, but saving to the server failed: " + saveError.message, "warn");
             }
-          }).catch(() => {});
-        }));
+
+            try {
+              const found = await findVersionContainingFilename(hit.project_id, entry.filename);
+              if (found) {
+                const linkedEntry = installedMods.find(e => e.filename === entry.filename);
+                if (linkedEntry) {
+                  Object.assign(linkedEntry,{
+                    versionId:found.version.id, versionNumber:found.version.version_number,
+                    versionType:found.version.version_type, gameVersions:found.version.game_versions || [],
+                    matchedFilename:found.file.filename,
+                    dependencies:Array.isArray(found.version.dependencies) ? found.version.dependencies : []
+                  });
+                  upsertRegistry(linkedEntry);
+                  try { await saveServerModLink(linkedEntry); } catch (_) {}
+                }
+                renderSidebar();
+              }
+            } catch (_) {}
+          }));
       };
         renderMatches(hits);
         const searchInput = body.querySelector("#manualLinkSearch");
@@ -3954,7 +4152,8 @@ async function checkAppUpdate(showNoUpdate = true) {
     await window.__TAURI__.core.invoke("install_update");
 
   } catch (e) {
-    toast("Update check failed: " + (e?.message || e), "error");
+    //TODO: Fix this to migrate to toast() instead of warn()
+    console.log("Update check failed: " + (e?.message || e), "error");
   } finally {
     if (btn) {
       btn.disabled = false;
