@@ -21,6 +21,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +38,19 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: Tinker v__VERSION__
-          releaseBody: "Tinker desktop release."
+          releaseBody: |
+            ## Tinker 0.2.0
+
+            A real feature release focused on server persistence, mod compatibility, and the desktop experience.
+
+            - Removed the redundant “Already installed” button.
+            - Manual Modrinth links are saved on the Crafty server and follow the server to other computers.
+            - Mod installs and updates select an actually compatible Modrinth version for the detected Minecraft version/loader instead of trusting the project-global latest version.
+            - Added round tab icons and a Players tab marked clearly as work in progress.
+            - Added a structured Configuration editor with toggles, numeric controls, and an advanced raw editor.
+            - Configuration now hides mods without recognized config files and shows a strong warning explaining why.
+            - Released Windows builds no longer open an extra terminal window.
+            - Added the Tauri signed updater pipeline.
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

@@ -491,6 +491,41 @@
   .tab-btn:hover:not(:disabled) { color:var(--text); background:var(--bg-raised); }
   .tab-btn.active { color:var(--brand-bright); border-bottom-color:var(--brand); background:var(--brand-wash); }
   .tab-btn:disabled { opacity:.42; cursor:not-allowed; }
+  .tab-btn { display:inline-flex; align-items:center; gap:.5rem; }
+  .tab-icon { width:1.5rem; height:1.5rem; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--panel-2); border:1px solid var(--border); flex:none; }
+  .tab-icon svg { width:.86rem; height:.86rem; }
+  .tab-btn.active .tab-icon { background:var(--brand-wash); border-color:var(--brand-dim); }
+  .wip-warning { margin:0 0 .8rem; padding:.7rem .8rem; border:1px solid #6a4b1f; border-left:3px solid var(--amber); background:rgba(242,169,59,.09); color:var(--amber); border-radius:7px; font-size:.78rem; line-height:1.45; }
+  .wip-warning strong { color:#ffc857; }
+  .config-warning { margin:.0rem .7rem .7rem; }
+  .players-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:.7rem; margin-bottom:.7rem; }
+  .players-search { flex:1 1 260px; }
+  .players-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.7rem; }
+  .player-card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:.85rem; display:flex; align-items:center; gap:.7rem; }
+  .player-avatar { width:44px; height:44px; border-radius:50%; background:var(--bg-raised); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--brand-bright); flex:none; }
+  .player-main { min-width:0; flex:1; }
+  .player-name { font-weight:700; font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .player-sub { color:var(--text-faint); font-family:var(--mono); font-size:.66rem; margin-top:.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .player-actions { display:flex; gap:.35rem; flex:none; }
+  .structured-editor { display:flex; flex-direction:column; gap:.8rem; }
+  .structured-section { background:var(--bg-raised); border:1px solid var(--border); border-radius:8px; padding:.75rem; }
+  .structured-grid { display:grid; gap:.6rem; }
+  .setting-row { display:grid; grid-template-columns:minmax(150px,1fr) minmax(180px,1.3fr); gap:.8rem; align-items:center; padding:.55rem .6rem; border:1px solid var(--border-soft); border-radius:7px; background:var(--panel); }
+  .setting-name { font-size:.76rem; font-weight:650; word-break:break-word; }
+  .setting-path { font:.62rem var(--mono); color:var(--text-faint); margin-top:.12rem; word-break:break-all; }
+  .setting-control { display:flex; align-items:center; gap:.55rem; min-width:0; }
+  .setting-control input[type=text], .setting-control input[type=number] { width:100%; min-width:0; }
+  .setting-control input[type=range] { flex:1; min-width:100px; accent-color:var(--brand); }
+  .setting-value { width:80px !important; flex:none; }
+  .setting-toggle { width:42px; height:24px; border-radius:999px; background:var(--border); position:relative; border:1px solid var(--border-soft); appearance:none; flex:none; }
+  .setting-toggle::after { content:""; width:18px; height:18px; position:absolute; top:2px; left:2px; border-radius:50%; background:var(--text-faint); transition:.15s; }
+  .setting-toggle:checked { background:var(--brand-dim); }
+  .setting-toggle:checked::after { left:20px; background:#fff; }
+  .structured-savebar { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; }
+  .advanced-editor summary { cursor:pointer; color:var(--text-faint); font-size:.76rem; }
+  .config-editor textarea.advanced-text { min-height:36vh; }
+  @media (max-width:850px) { .setting-row { grid-template-columns:1fr; } .players-list { grid-template-columns:1fr; } }
+
   .tab-panels { padding:1.1rem 0 0; }
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
@@ -607,10 +642,11 @@
 
 <div class="app-shell">
   <nav class="tab-nav" id="tabNav" aria-label="Ore &amp; Jar sections">
-    <button class="tab-btn active" data-tab="connection" type="button">Connection</button>
-    <button class="tab-btn" data-tab="browse" type="button" disabled>Browse Mods</button>
-    <button class="tab-btn" data-tab="explorer" type="button" disabled>Explorer <span class="count-badge" id="tabExplorerCount">0</span></button>
-    <button class="tab-btn" data-tab="configuration" type="button" disabled>Configuration</button>
+    <button class="tab-btn active" data-tab="connection" type="button"><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 10.5a8 8 0 0 1 14 0"/><path d="M8 13.5a4.8 4.8 0 0 1 8 0"/><path d="M11 17a1.5 1.5 0 0 1 2 0"/><path d="M12 19v.01"/></svg></span>Connection</button>
+    <button class="tab-btn" data-tab="browse" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/></svg></span>Browse Mods</button>
+    <button class="tab-btn" data-tab="explorer" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5h6l1.8 2H20a1 1 0 0 1 1 1v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg></span>Explorer <span class="count-badge" id="tabExplorerCount">0</span></button>
+    <button class="tab-btn" data-tab="players" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 18c.4-3 2.4-5 5.5-5s5.1 2 5.5 5"/><path d="M15 7a3 3 0 0 1 0 5.3"/><path d="M17 14c2 .5 3.1 1.6 3.5 3.2"/></svg></span>Players</button>
+    <button class="tab-btn" data-tab="configuration" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 4.2a4 4 0 0 0 0 5.6L9.9 14.6l-1.5-1.5-4.8 4.8a2 2 0 0 0 2.8 2.8l4.8-4.8-1.5-1.5 4.8-4.8a4 4 0 0 0 5.6 0 4 4 0 0 0-5.4-5.4Z"/><path d="m14.2 6.2 3.6 3.6"/></svg></span>Configuration</button>
   </nav>
 
   <main class="tab-panels">
@@ -781,11 +817,21 @@
       </div>
     </section>
 
+    <section class="tab-panel" id="tabPlayers" data-panel="players">
+      <div class="page-heading compact-heading">
+        <div><h1>Players</h1><p>Players known to the server, with quick access to their player-data file.</p></div>
+        <button class="btn ghost small" id="playersRefreshBtn" type="button">&#8635; Refresh players</button>
+      </div>
+      <div class="wip-warning"><strong>WARNING: Work in Progress.</strong> Player discovery and NBT editing are still being built. Tinker will not directly edit player data in this tab.</div>
+      <div class="players-toolbar"><input class="players-search" id="playersSearch" type="search" placeholder="Search players or UUIDs…" autocomplete="off"><span class="muted" id="playersStatus">Not loaded</span></div>
+      <div class="players-list" id="playersList"><div class="empty-state small">Connect to Crafty to load players.</div></div>
+    </section>
+
     <section class="tab-panel config-tab-panel" id="tabConfiguration" data-panel="configuration">
       <div class="page-heading compact-heading">
         <div>
           <h1>Configuration</h1>
-          <p>Browse the server's <code>config/</code> folder, pick a mod, and edit text-based configuration files.</p>
+          <p>Browse recognized configuration files and adjust supported settings with controls instead of editing raw text every time.</p>
         </div>
         <div class="config-head-actions">
           <button class="btn ghost small" id="configRefreshBtn" type="button">&#8635; Refresh config</button>
@@ -796,6 +842,7 @@
       <div class="config-layout">
         <aside class="config-mod-pane">
           <div class="config-pane-title">Mods</div>
+          <div class="wip-warning config-warning"><strong>WARNING</strong> Mods without a recognized configuration file are not listed here!</div>
           <div class="config-pane-search"><input id="configModSearch" type="search" placeholder="Find a mod…" autocomplete="off"></div>
           <div id="configModList" class="config-mod-list"></div>
         </aside>
@@ -1296,6 +1343,7 @@
     tabButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === name));
     document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
     if (name === "explorer") { if (!hasLiveScan) scanInstalledMods(); }
+    if (name === "players") loadPlayers();
     if (name === "configuration") { renderConfigurationMods(); if (!configFilesLoaded) loadConfigFiles(); }
   }
   tabButtons.forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
@@ -3003,8 +3051,15 @@
     if (!res) throw new Error("Could not contact Modrinth");
     if (!res.ok) throw new Error("Modrinth version lookup failed (HTTP " + res.status + ")");
     const versions = await res.json();
-    if (!versions.length) throw new Error("No version matches your server's detected loader/version");
-    const version = versions[0];
+    const compatible = versions.filter(v => {
+      const loaderOK = !loader || (Array.isArray(v.loaders) && v.loaders.includes(loader));
+      const gameOK = !mcv || (Array.isArray(v.game_versions) && v.game_versions.includes(mcv));
+      return loaderOK && gameOK;
+    });
+    if (!compatible.length) throw new Error("No version matches your server's detected loader/version");
+    const typeRank = {release:3,beta:2,alpha:1};
+    compatible.sort((a,b) => (typeRank[b.version_type] || 0) - (typeRank[a.version_type] || 0) || String(b.date_published || "").localeCompare(String(a.date_published || "")));
+    const version = compatible[0];
     const file = version.files.find(f => f.primary) || version.files.find(f => /\.jar$/i.test(f.filename)) || version.files[0];
     if (!file || !file.url) throw new Error("That version has no downloadable file");
     return { version, file };
@@ -3149,30 +3204,6 @@
       logEl.textContent = e.message;
       toast("Install failed: " + e.message, "error");
       setTimeout(() => { if (btn.dataset.state === "error") setBtnState(btn, "", "Install"); }, 6000);
-    }
-  }
-
-  async function markAsInstalled(hit, btn) {
-    try { await requireServerStopped("mark a mod as installed"); } catch (e) { toast(e.message, "warn"); renderServerState(); return; }
-    const originalLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Marking…";
-    try {
-      const { version, file } = await findMatchingVersion(hit.project_id);
-      upsertRegistry({
-        projectId: hit.project_id, slug: hit.slug, title: hit.title, author: hit.author,
-        iconUrl: hit.icon_url, versionId: version.id, versionNumber: version.version_number,
-        versionType: version.version_type, filename: file.filename,
-        loader: env.loader, gameVersions: version.game_versions, categories: hit.categories || [],
-        installedAt: new Date().toISOString(), source: "marked",
-      });
-      toast(hit.title + " marked as already installed", "ok");
-      renderSidebar();
-      refreshSearchCardStates();
-    } catch (e) {
-      toast("Couldn't mark as installed: " + e.message, "error");
-      btn.disabled = false;
-      btn.textContent = originalLabel;
     }
   }
 
@@ -3561,6 +3592,26 @@
   });
 
 
+  // ---------- Players tab (work in progress) ----------
+  let playersData=[];
+  async function loadPlayers(){
+    if(!connectionConfigured()) return;
+    const listEl=document.getElementById("playersList"), status=document.getElementById("playersStatus");
+    if(!listEl) return;
+    status.textContent="Loading…"; listEl.innerHTML=`<div class="skeleton"></div><div class="skeleton"></div>`;
+    try{
+      const cfg=getConfig(), names=new Map(), uuids=new Set();
+      try{const r=await readCraftyTextFile(cfg,"usercache.json"), a=JSON.parse(r.content); if(Array.isArray(a)) for(const p of a){const u=String(p.uuid||"").replace(/-/g,"").toLowerCase(),n=String(p.name||"").trim(); if(u){uuids.add(u); if(n)names.set(u,n);}}}catch(_){}
+      try{const items=await listCraftyDirectory(cfg,"world/playerdata",null); for(const i of items) if(!i.isDirectory&&/\.dat$/i.test(i.name||"")){const m=String(i.name).match(/^([0-9a-fA-F-]{32,36})\.dat$/); if(m)uuids.add(m[1].replace(/-/g,"").toLowerCase());}}catch(_){}
+      for(const path of ["whitelist.json","ops.json"]){try{const r=await readCraftyTextFile(cfg,path),a=JSON.parse(r.content);if(Array.isArray(a))for(const p of a){const u=String(p.uuid||"").replace(/-/g,"").toLowerCase(),n=String(p.name||"").trim();if(u){uuids.add(u);if(n)names.set(u,n);}}}catch(_) {}}
+      playersData=Array.from(uuids).map(uuid=>({uuid,name:names.get(uuid)||"Unknown player",dataPath:"world/playerdata/"+uuid+".dat"})).sort((a,b)=>a.name.localeCompare(b.name));
+      renderPlayers(); status.textContent=playersData.length+" player"+(playersData.length===1?"":"s")+" found";
+    }catch(e){playersData=[];listEl.innerHTML=`<div class="empty-state small"><strong>Couldn't load players.</strong><br><br>${escapeHtml(e.message)}</div>`;status.textContent="Load failed";}
+  }
+  function renderPlayers(){const q=(document.getElementById("playersSearch")?.value||"").toLowerCase().trim(),el=document.getElementById("playersList");if(!el)return;const list=playersData.filter(p=>p.name.toLowerCase().includes(q)||p.uuid.includes(q));if(!list.length){el.innerHTML=`<div class="empty-state small">No players match this search.</div>`;return;}el.innerHTML=list.map(p=>`<div class="player-card"><div class="player-avatar">${escapeHtml((p.name==="Unknown player"?"?":p.name.slice(0,2)).toUpperCase())}</div><div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-sub">${escapeHtml(p.uuid)} · player-data</div></div><div class="player-actions"><button class="btn primary small nbt-player-btn" type="button" data-player-path="${escapeHtml(p.dataPath)}">Launch in NBT Explorer</button></div></div>`).join("");el.querySelectorAll(".nbt-player-btn").forEach(btn=>btn.addEventListener("click",async()=>{btn.disabled=true;btn.textContent="Launching…";try{await window.__TAURI__.core.invoke("launch_nbt_explorer",{path:btn.dataset.playerPath});toast("Opening "+btn.dataset.playerPath,"ok");}catch(e){toast("Couldn't launch NBT Explorer: "+(e?.message||e),"error");}finally{btn.disabled=false;btn.textContent="Launch in NBT Explorer";}}));}
+  document.getElementById("playersRefreshBtn")?.addEventListener("click",loadPlayers);
+  document.getElementById("playersSearch")?.addEventListener("input",renderPlayers);
+
   // ---------- Configuration tab ----------
   function configFileIcon(name) {
     const ext = String(name || "").toLowerCase().split(".").pop();
@@ -3588,7 +3639,7 @@
 
   function renderConfigurationMods() {
     const search = (document.getElementById("configModSearch")?.value || "").trim().toLowerCase();
-    const list = installedMods.filter(e => e.projectId).filter(e => !search || String(e.title || e.filename).toLowerCase().includes(search));
+    const list = installedMods.filter(e => e.projectId).filter(mod => configFiles.some(f => configFileGroupForMod(f, mod) > 0)).filter(e => !search || String(e.title || e.filename).toLowerCase().includes(search));
     const el = document.getElementById("configModList");
     if (!el) return;
     if (!list.length) { el.innerHTML = `<div class="empty-state small">No linked mods found. Scan the Explorer first.</div>`; return; }
@@ -3717,43 +3768,93 @@
     return true;
   }
 
+  function parseSimpleProperties(text) {
+    const data={};
+    for(const raw of String(text).split(/\r?\n/)){
+      const line=raw.trim(); if(!line||line.startsWith("#")||line.startsWith(";")) continue;
+      const m=raw.match(/^\s*([^=:#]+?)\s*[:=]\s*(.*?)\s*$/); if(!m) continue;
+      let v=m[2].trim(); if(/^(true|false)$/i.test(v)) v=v.toLowerCase()==="true"; else if(/^-?\d+(?:\.\d+)?$/.test(v)) v=Number(v);
+      data[m[1].trim()]=v;
+    }
+    return {data,format:"properties"};
+  }
+  function parseSimpleToml(text) {
+    const data={}; let section=null;
+    for(const raw of String(text).split(/\r?\n/)){
+      const line=raw.trim(); if(!line||line.startsWith("#")) continue;
+      if(line.startsWith("[")&&line.endsWith("]")){section=line.slice(1,-1).trim(); if(!data[section]) data[section]={}; continue;}
+      const m=raw.match(/^\s*([A-Za-z0-9_.-]+)\s*=\s*(.*?)\s*(?:#.*)?$/); if(!m) continue;
+      let v=m[2].trim(); if((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'"))) v=v.slice(1,-1); else if(/^(true|false)$/i.test(v)) v=v.toLowerCase()==="true"; else if(/^-?\d+(?:\.\d+)?$/.test(v)) v=Number(v); else if(v.startsWith("[")&&v.endsWith("]")){try{v=JSON.parse(v.replace(/'/g,'"'));}catch(_){}
+      }
+      (section?data[section]:data)[m[1]]=v;
+    }
+    return {data,format:"toml"};
+  }
+  function parseStructuredConfig(file,text){
+    const ext=String(file?.name||"").toLowerCase().split(".").pop();
+    try{ if(ext==="json") return {data:JSON.parse(text),format:"json"}; if(["properties","cfg","conf","ini"].includes(ext)) return parseSimpleProperties(text); if(ext==="toml") return parseSimpleToml(text); }catch(_){}
+    return null;
+  }
+  function flattenSettings(value,path=[],out=[]){
+    if(value&&typeof value==="object"&&!Array.isArray(value)){ for(const [k,v] of Object.entries(value)) flattenSettings(v,path.concat(k),out); if(!Object.keys(value).length) out.push({path,value:""}); return out; }
+    out.push({path,value}); return out;
+  }
+  function setPathValue(root,path,value){ let cur=root; for(let i=0;i<path.length-1;i++){if(!cur[path[i]]||typeof cur[path[i]]!=="object"||Array.isArray(cur[path[i]])) cur[path[i]]={}; cur=cur[path[i]];} if(path.length) cur[path[path.length-1]]=value; }
+  function prettySettingName(k){ return String(k||"").replace(/[_-]+/g," ").replace(/\b\w/g,m=>m.toUpperCase()); }
+  function renderStructuredRows(entries){
+    return entries.map((e,i)=>{const v=e.value; const type=Array.isArray(v)?"array":typeof v; let control="";
+      if(type==="boolean") control=`<input class="setting-toggle" type="checkbox" data-setting-idx="${i}" data-setting-type="boolean" ${v?"checked":""}>`;
+      else if(type==="number") control=`<input type="range" min="${Math.min(0,Number(v))}" max="${Math.max(100,Number(v)*2||100)}" step="any" value="${escapeHtml(v)}" data-setting-idx="${i}" data-setting-type="number"><input class="setting-value" type="number" step="any" value="${escapeHtml(v)}" data-setting-idx="${i}" data-setting-type="number">`;
+      else if(type==="array") control=`<input type="text" value="${escapeHtml(JSON.stringify(v))}" data-setting-idx="${i}" data-setting-type="array" title="JSON array or comma-separated values">`;
+      else control=`<input type="text" value="${escapeHtml(v??"")}" data-setting-idx="${i}" data-setting-type="string">`;
+      return `<div class="setting-row"><div><div class="setting-name">${escapeHtml(prettySettingName(e.path[e.path.length-1]))}</div><div class="setting-path">${escapeHtml(e.path.join("."))}</div></div><div class="setting-control">${control}</div></div>`;
+    }).join("");
+  }
+  function structuredValue(c,original){ const t=c.dataset.settingType; if(t==="boolean") return c.checked; if(t==="number") return Number(c.value); if(t==="array"){try{return JSON.parse(c.value)}catch(_){return c.value.split(",").map(x=>x.trim()).filter(Boolean)}} return c.value; }
+  function serializeStructured(parsed,data){
+    if(parsed.format==="json") return JSON.stringify(data,null,2)+"\n";
+    if(parsed.format==="properties") return flattenSettings(data).map(e=>e.path.join(".")+"="+(Array.isArray(e.value)?e.value.join(","):String(e.value))).join("\n")+"\n";
+    const lines=[]; const root=[]; const sections={};
+    flattenSettings(data).forEach(e=>{if(e.path.length===1) root.push(e); else (sections[e.path[0]] ||= []).push(e);});
+    for(const e of root) lines.push(e.path[0]+" = "+tomlValue(e.value));
+    for(const [name,items] of Object.entries(sections)){lines.push("","["+name+"]"); for(const e of items) lines.push(e.path.slice(1).join(".")+" = "+tomlValue(e.value));}
+    return lines.join("\n")+"\n";
+  }
+  function tomlValue(v){if(typeof v==="boolean"||typeof v==="number")return String(v);if(Array.isArray(v))return "["+v.map(tomlValue).join(", ")+"]";return JSON.stringify(String(v??""));}
+
   async function openConfigEditor(file) {
-    if (!file) return;
-    try { await requireServerStopped("edit a config file"); } catch (e) { toast(e.message, "warn"); return; }
-    openModal(body => { body.innerHTML = `<div class="config-editor"><div class="modal-loading">Loading ${escapeHtml(file.name)}…</div></div>`; }, {wide:true});
-    try {
-      if (!isLikelyTextConfig(file)) throw new Error("This file type is not treated as editable text yet.");
-      const result = await readCraftyTextFile(getConfig(), file.path);
-      const textValue = result.content;
-      const openedModifiedEpoch = Number(result.attributes?.modified_epoch || 0);
-      openModal(body => {
-        body.innerHTML = `<div class="config-editor">
-          <div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div>
-          <textarea id="configEditorText" spellcheck="false"></textarea>
-          <div class="config-editor-bar"><button class="btn primary" id="configSaveFileBtn" data-server-mutation="true" type="button">Save changes</button><span class="editor-save-state" id="editorSaveState">Loaded · ${escapeHtml(formatBytes(new TextEncoder().encode(textValue).byteLength))}</span><span class="muted">Ctrl+S saves when the server is stopped.</span></div>
-        </div>`;
-        body.querySelector("#configEditorText").value = textValue;
-        body.querySelector("#editorCloseBtn").addEventListener("click", closeModal);
-        const save = async () => {
-          try { await requireServerStopped("save a config file"); } catch (e) { toast(e.message, "warn"); return; }
-          const btn = body.querySelector("#configSaveFileBtn");
-          const state = body.querySelector("#editorSaveState");
-          btn.disabled = true; btn.textContent = "Saving…";
-          try {
-            await writeCraftyTextFile(getConfig(), file.path, body.querySelector("#configEditorText").value, openedModifiedEpoch || file.modifiedEpoch || 0);
-            state.textContent = "Saved just now";
-            toast(file.name + " saved", "ok");
-          } catch (e) { state.textContent = "Save failed"; toast("Couldn't save " + file.name + ": " + e.message, "error"); }
-          finally { btn.disabled = folderDirty || serverState.running || !serverState.known; btn.textContent = "Save changes"; renderServerState(); }
-        };
-        body.querySelector("#configSaveFileBtn").addEventListener("click", save);
-        body.querySelector("#configEditorText").addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); } });
-        renderServerState();
-      }, {wide:true});
-    } catch (e) {
-      openModal(body => { body.innerHTML = `<p class="error-text">Couldn't open ${escapeHtml(file.name)}: ${escapeHtml(e.message)}</p>`; });
+    if(!file) return;
+    try{await requireServerStopped("edit a config file");}catch(e){toast(e.message,"warn");return;}
+    openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="modal-loading">Loading ${escapeHtml(file.name)}…</div></div>`;},{wide:true});
+    let textValue="", openedModifiedEpoch=0;
+    try{
+      if(!isLikelyTextConfig(file)) throw new Error("This file type is not treated as an editable configuration yet.");
+      const result=await readCraftyTextFile(getConfig(),file.path); textValue=result.content; openedModifiedEpoch=Number(result.attributes?.modified_epoch||0);
+      const parsed=parseStructuredConfig(file,textValue);
+      if(!parsed||!parsed.data||typeof parsed.data!=="object"||Array.isArray(parsed.data)) throw new Error("This configuration could not be represented safely in structured mode.");
+      const entries=flattenSettings(parsed.data);
+      openModal(body=>{
+        body.innerHTML=`<div class="structured-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><div class="muted">Structured mode · ${escapeHtml(parsed.format.toUpperCase())} · ${entries.length} setting${entries.length===1?'':'s'}</div><div class="structured-section"><div class="structured-grid">${renderStructuredRows(entries)}</div></div><details class="advanced-editor"><summary>Advanced: edit raw file text</summary><textarea id="advancedConfigText" class="advanced-text" spellcheck="false"></textarea></details><div class="structured-savebar"><button class="btn primary" id="configStructuredSaveBtn" data-server-mutation="true" type="button">Save changes</button><span class="editor-save-state" id="configStructuredState">Loaded</span></div></div>`;
+        body.querySelector("#advancedConfigText").value=textValue;
+        body.querySelector("#editorCloseBtn").addEventListener("click",closeModal);
+        body.querySelectorAll("input[type=range]").forEach(r=>{const n=r.parentElement.querySelector("input[type=number]"); r.addEventListener("input",()=>n.value=r.value); n.addEventListener("input",()=>r.value=n.value);});
+        body.querySelector("#configStructuredSaveBtn").addEventListener("click",async()=>{
+          try{await requireServerStopped("save a config file");}catch(e){toast(e.message,"warn");return;}
+          const btn=body.querySelector("#configStructuredSaveBtn"),state=body.querySelector("#configStructuredState"); btn.disabled=true; btn.textContent="Saving…";
+          try{const advanced=body.querySelector("#advancedConfigText"); let output;
+            if(advanced.dataset.dirty==="true") output=advanced.value;
+            else {const next=JSON.parse(JSON.stringify(parsed.data)); body.querySelectorAll("[data-setting-idx]").forEach(c=>{if(c.type==='range')return; const idx=Number(c.dataset.settingIdx); if(c.dataset._skip)return;}); for(let i=0;i<entries.length;i++){const controls=body.querySelectorAll(`[data-setting-idx="${i}"]`); const c=Array.from(controls).find(x=>x.type!=="range"); if(c) setPathValue(next,entries[i].path,structuredValue(c,entries[i].value));} output=serializeStructured(parsed,next);}
+            await writeCraftyTextFile(getConfig(),file.path,output,openedModifiedEpoch||file.modifiedEpoch||0); state.textContent="Saved just now"; toast(file.name+" saved","ok");
+          }catch(e){state.textContent="Save failed";toast("Couldn't save "+file.name+": "+e.message,"error");}
+          finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}
+        });
+        body.querySelector("#advancedConfigText").addEventListener("input",e=>e.target.dataset.dirty="true"); renderServerState();
+      },{wide:true});
+    }catch(e){
+      openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><p class="muted">${escapeHtml(e.message)}</p><textarea id="configEditorText" spellcheck="false">${escapeHtml(textValue)}</textarea><div class="config-editor-bar"><button class="btn primary" id="configSaveFileBtn" data-server-mutation="true" type="button">Save changes</button></div></div>`; body.querySelector("#editorCloseBtn").addEventListener("click",closeModal); body.querySelector("#configSaveFileBtn").addEventListener("click",async()=>{try{await requireServerStopped("save a config file");}catch(e){toast(e.message,"warn");return;} const btn=body.querySelector("#configSaveFileBtn");btn.disabled=true;btn.textContent="Saving…";try{await writeCraftyTextFile(getConfig(),file.path,body.querySelector("#configEditorText").value,openedModifiedEpoch||file.modifiedEpoch||0);toast(file.name+" saved","ok");}catch(e){toast("Couldn't save "+file.name+": "+e.message,"error");}finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}}); renderServerState();},{wide:true});
     }
   }
+
 
   function openConfigurationForMod(mod) {
     if (!mod) return;
@@ -4018,15 +4119,12 @@
     els.grid.querySelectorAll(".card").forEach(card => {
       const projectId = card.dataset.projectId;
       const installBtn = card.querySelector(".install-btn");
-      const markWrap = card.querySelector(".mark-wrap");
       if (!projectId || !installBtn) return;
       const entry = getInstalledEntry(projectId);
       if (entry) {
         setBtnState(installBtn, "installed", "\u2713 Installed");
-        if (markWrap) markWrap.style.display = "none";
       } else {
         if (installBtn.dataset.state !== "working") setBtnState(installBtn, "", "Install");
-        if (markWrap) markWrap.style.display = "";
       }
     });
   }
@@ -4051,6 +4149,7 @@
       const featureTags = cats.filter(c => !KNOWN_LOADERS.includes(c)).slice(0, 3);
       const tagsHtml = featureTags.map(c => `<span class="tag-feature">${escapeHtml(prettyCategory(c))}</span>`).join("")
         + loaders.map(l => `<span class="badge loader">${escapeHtml(prettyLoader(l))}</span>`).join("");
+      const compatibleChip = env.mcVersion && Array.isArray(hit.versions) && hit.versions.includes(env.mcVersion) ? `<span class="tag-feature">Compatible with ${escapeHtml(env.mcVersion)}</span>` : "";
 
       const icon = hit.icon_url ? escapeHtml(hit.icon_url) : "";
       const installed = getInstalledEntry(hit.project_id);
@@ -4064,7 +4163,7 @@
           </div>
         </div>
         <div class="card-desc">${escapeHtml(hit.description || "")}</div>
-        <div class="tag-row">${tagsHtml || `<span class="tag-feature">uncategorized</span>`}</div>
+        <div class="tag-row">${tagsHtml}${compatibleChip}${tagsHtml || compatibleChip ? "" : `<span class="tag-feature">uncategorized</span>`}</div>
         <div class="card-stats">
           <span class="stat">\u2B07 ${formatCount(hit.downloads)}</span>
           <span class="spacer"></span>
@@ -4073,21 +4172,15 @@
         <div class="card-foot">
           <button class="btn primary small install-btn" data-server-mutation="true">Install</button>
         </div>
-        <div class="mark-wrap" style="${installed ? "display:none;" : ""}">
-          <button class="link-btn mark-btn" type="button">Already have this installed?</button>
-        </div>
         <div class="card-log"></div>
       `;
 
       const installBtn = card.querySelector(".install-btn");
       const logEl = card.querySelector(".card-log");
       const infoBtn = card.querySelector(".info-btn");
-      const markBtn = card.querySelector(".mark-btn");
-
       if (installed) setBtnState(installBtn, "installed", "\u2713 Installed");
       installBtn.addEventListener("click", () => installMod(hit, installBtn, logEl));
       infoBtn.addEventListener("click", () => openModInfo(hit.project_id, hit));
-      markBtn.addEventListener("click", () => markAsInstalled(hit, markBtn));
 
       els.grid.appendChild(card);
     });
@@ -4152,8 +4245,7 @@ async function checkAppUpdate(showNoUpdate = true) {
     await window.__TAURI__.core.invoke("install_update");
 
   } catch (e) {
-    //TODO: Fix this to migrate to toast() instead of warn()
-    console.log("Update check failed: " + (e?.message || e), "error");
+    toast("Update check failed: " + (e?.message || e), "error");
   } finally {
     if (btn) {
       btn.disabled = false;
