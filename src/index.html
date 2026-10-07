@@ -4178,7 +4178,10 @@
   async function openExternalUrl(url) {
     const safe=String(url||"").trim();
     if(!new RegExp("^https?://","i").test(safe)) throw new Error("Only web links can be opened.");
-    if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){ await window.__TAURI__.opener.openUrl(safe); return; }
+    if(window.__TAURI__?.core?.invoke){
+      await window.__TAURI__.core.invoke("open_external_url",{url:safe});
+      return;
+    }
     const popup=window.open(safe,"_blank","noopener,noreferrer");
     if(!popup) throw new Error("The browser blocked opening the link.");
   }
