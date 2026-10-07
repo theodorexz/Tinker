@@ -3,7 +3,8 @@ use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Debug, Deserialize)]
@@ -165,42 +166,53 @@ fn likely_nbt_explorer_paths() -> Vec<PathBuf> {
 }
 
 #[tauri::command]
-async fn launch_nbt_explorer(app: AppHandle, path: String) -> Result<(), String> {
+async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<String>) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = app;
         let _ = path;
+        let _ = data_base64;
         return Err("The NBT Explorer launcher is currently Windows-only.".to_string());
     }
 
     #[cfg(target_os = "windows")]
     {
-        let resource_root = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("Could not determine Tinker data directory: {e}"))?;
-        let _ = resource_root;
+        let encoded = data_base64.ok_or_else(|| "Player-data bytes were not provided.".to_string())?;
+        let data = BASE64
+            .decode(encoded)
+            .map_err(|e| format!("Could not decode player data: {e}"))?;
 
-        let relative = path.replace('/', "\\").trim_start_matches('\\').to_string();
-        if relative.is_empty() {
-            return Err("Player-data path is empty.".to_string());
-        }
+        let file_stem = PathBuf::from(&path)
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("player")
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect::<String>();
 
-        // The server file path is not a local path. For this WIP launcher we open
-        // the path through Windows' file association only when it exists locally;
-        // direct remote player-data extraction/editing remains a later feature.
-        let candidates = likely_nbt_explorer_paths();
-        for exe in candidates {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Could not get system time: {e}"))?
+            .as_millis();
+
+        let temp_root = std::env::temp_dir().join("Tinker").join("playerdata");
+        std::fs::create_dir_all(&temp_root)
+            .map_err(|e| format!("Could not create Tinker player-data temp folder: {e}"))?;
+
+        let local_path = temp_root.join(format!("{}-{}.dat", file_stem, stamp));
+        std::fs::write(&local_path, data)
+            .map_err(|e| format!("Could not write local player-data copy: {e}"))?;
+
+        for exe in likely_nbt_explorer_paths() {
             if exe.is_file() {
-                std::process::Command::new(exe)
-                    .arg(&relative)
+                std::process::Command::new(&exe)
+                    .arg(&local_path)
                     .spawn()
                     .map_err(|e| format!("Could not start NBT Explorer: {e}"))?;
                 return Ok(());
             }
         }
 
-        Err("NBT Explorer was not found in the usual Windows install locations. Player-data editing is still a work in progress.".to_string())
+        Err("NBT Explorer was not found in the usual Windows install locations. Install NBT Explorer or choose another player-data editor.".to_string())
     }
 }
 
