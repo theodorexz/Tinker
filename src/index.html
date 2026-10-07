@@ -3655,24 +3655,87 @@
 
   // ---------- Players tab (work in progress) ----------
   let playersData=[];
+
+  async function openPlayerDataMenu(player){
+    openModal(function(body){
+      const avatar="https://crafatar.com/avatars/"+encodeURIComponent(player.uuid)+"?size=64&overlay";
+      body.innerHTML="<div class=\"modal-head\"><img class=\"player-avatar\" src=\""+avatar+"\" alt=\"\"><div><h3>"+escapeHtml(player.name)+"</h3><div class=\"modal-sub\">"+escapeHtml(player.uuid)+"</div></div></div>"+
+        "<div class=\"structured-section\"><div class=\"setting-row\"><div><div class=\"setting-name\">Player-data file</div><div class=\"setting-path\">"+escapeHtml(player.dataPath)+"</div></div><div class=\"setting-control\"><span class=\"muted\">Crafty server</span></div></div>"+
+        "<p class=\"muted\" style=\"margin:.65rem 0 0;\">Tinker downloads a temporary local copy of this exact player-data file for NBT Explorer. Changes are not synced back to Crafty yet.</p></div>"+
+        "<div class=\"structured-savebar\" style=\"margin-top:.75rem;\"><button class=\"btn primary\" id=\"openPlayerNbtBtn\" type=\"button\">Open in NBT Explorer</button><button class=\"btn ghost\" id=\"closePlayerMenuBtn\" type=\"button\">Close</button></div>";
+      body.querySelector("#closePlayerMenuBtn").addEventListener("click",closeModal);
+      body.querySelector("#openPlayerNbtBtn").addEventListener("click",async function(){
+        const btn=body.querySelector("#openPlayerNbtBtn");
+        btn.disabled=true; btn.textContent="Downloading player data…";
+        try{
+          const buffer=await downloadCraftyRawFileBuffer(getConfig(),player.dataPath);
+          await window.__TAURI__.core.invoke("launch_nbt_explorer",{path:player.dataPath,dataBase64:base64FromArrayBuffer(buffer)});
+          btn.textContent="Opened in NBT Explorer";
+          toast("Opened a local copy of "+player.dataPath,"ok");
+        }catch(e){
+          btn.disabled=false; btn.textContent="Open in NBT Explorer";
+          toast("Couldn’t open player data: "+(e&&e.message?e.message:e),"error");
+        }
+      });
+    },{wide:true});
+  }
+
   async function loadPlayers(){
     if(!connectionConfigured()) return;
     const listEl=document.getElementById("playersList"), status=document.getElementById("playersStatus");
     if(!listEl) return;
-    status.textContent="Loading…"; listEl.innerHTML=`<div class="skeleton"></div><div class="skeleton"></div>`;
+    status.textContent="Loading…"; listEl.innerHTML="<div class=\"skeleton\"></div><div class=\"skeleton\"></div>";
     try{
-      const cfg=getConfig(), names=new Map(), uuids=new Set();
-      try{const r=await readCraftyTextFile(cfg,"usercache.json"), a=JSON.parse(r.content); if(Array.isArray(a)) for(const p of a){const u=String(p.uuid||"").replace(/-/g,"").toLowerCase(),n=String(p.name||"").trim(); if(u){uuids.add(u); if(n)names.set(u,n);}}}catch(_){}
-      try{const items=await listCraftyDirectory(cfg,"world/playerdata",null); for(const i of items) if(!i.isDirectory&&/\.dat$/i.test(i.name||"")){const m=String(i.name).match(/^([0-9a-fA-F-]{32,36})\.dat$/); if(m)uuids.add(m[1].replace(/-/g,"").toLowerCase());}}catch(_){}
-      for(const path of ["whitelist.json","ops.json"]){try{const r=await readCraftyTextFile(cfg,path),a=JSON.parse(r.content);if(Array.isArray(a))for(const p of a){const u=String(p.uuid||"").replace(/-/g,"").toLowerCase(),n=String(p.name||"").trim();if(u){uuids.add(u);if(n)names.set(u,n);}}}catch(_) {}}
-      playersData=Array.from(uuids).map(uuid=>({uuid,name:names.get(uuid)||"Unknown player",dataPath:"world/playerdata/"+uuid+".dat"})).sort((a,b)=>a.name.localeCompare(b.name));
+      const cfg=getConfig(), names=new Map(), entries=[];
+      try{
+        const cache=await readCraftyTextFile(cfg,"usercache.json");
+        const parsed=JSON.parse(cache.content);
+        if(Array.isArray(parsed)) parsed.forEach(function(p){
+          const uuid=String(p.uuid||"").replace(/-/g,"").toLowerCase(), name=String(p.name||"").trim();
+          if(uuid&&name) names.set(uuid,name);
+        });
+      }catch(_){ }
+      const items=await listCraftyDirectory(cfg,"world/playerdata",null);
+      for(const item of items){
+        if(item.isDirectory || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
+        const rawName=String(item.name||"");
+        const uuidText=rawName.slice(0,-4).replace(/-/g,"").toLowerCase();
+        if(uuidText.length!==32 || !/^[0-9a-f]+$/.test(uuidText)) continue;
+        entries.push({uuid:uuidText,name:names.get(uuidText)||("Player "+uuidText.slice(0,8)),dataPath:String(item.path||joinServerPath("world/playerdata",rawName))});
+      }
+      playersData=entries.sort(function(a,b){return a.name.localeCompare(b.name);});
       renderPlayers(); status.textContent=playersData.length+" player"+(playersData.length===1?"":"s")+" found";
-    }catch(e){playersData=[];listEl.innerHTML=`<div class="empty-state small"><strong>Couldn't load players.</strong><br><br>${escapeHtml(e.message)}</div>`;status.textContent="Load failed";}
+    }catch(e){
+      playersData=[]; listEl.innerHTML="<div class=\"empty-state small\"><strong>Couldn’t load players.</strong><br><br>"+escapeHtml(e.message)+"</div>"; status.textContent="Load failed";
+    }
   }
-  function renderPlayers(){const q=(document.getElementById("playersSearch")?.value||"").toLowerCase().trim(),el=document.getElementById("playersList");if(!el)return;const list=playersData.filter(p=>p.name.toLowerCase().includes(q)||p.uuid.includes(q));if(!list.length){el.innerHTML=`<div class="empty-state small">No players match this search.</div>`;return;}el.innerHTML=list.map(p=>`<div class="player-card"><div class="player-avatar">${escapeHtml((p.name==="Unknown player"?"?":p.name.slice(0,2)).toUpperCase())}</div><div class="player-main"><div class="player-name">${escapeHtml(p.name)}</div><div class="player-sub">${escapeHtml(p.uuid)} · player-data</div></div><div class="player-actions"><button class="btn primary small nbt-player-btn" type="button" data-player-path="${escapeHtml(p.dataPath)}">Launch in NBT Explorer</button></div></div>`).join("");el.querySelectorAll(".nbt-player-btn").forEach(btn=>btn.addEventListener("click",async()=>{btn.disabled=true;btn.textContent="Launching…";try{await window.__TAURI__.core.invoke("launch_nbt_explorer",{path:btn.dataset.playerPath});toast("Opening "+btn.dataset.playerPath,"ok");}catch(e){toast("Couldn't launch NBT Explorer: "+(e?.message||e),"error");}finally{btn.disabled=false;btn.textContent="Launch in NBT Explorer";}}));}
+
+  function renderPlayers(){
+    const q=(document.getElementById("playersSearch")?.value||"").toLowerCase().trim(), el=document.getElementById("playersList");
+    if(!el) return;
+    const list=playersData.filter(function(p){return p.name.toLowerCase().includes(q)||p.uuid.includes(q);});
+    if(!list.length){el.innerHTML="<div class=\"empty-state small\">No players match this search.</div>";return;}
+    el.innerHTML=list.map(function(p){
+      const avatar="https://crafatar.com/avatars/"+encodeURIComponent(p.uuid)+"?size=64&overlay";
+      return "<div class=\"player-card\" data-player-uuid=\""+escapeHtml(p.uuid)+"\"><div class=\"player-avatar\"><img src=\""+avatar+"\" alt=\"Player head\" loading=\"lazy\"></div><div class=\"player-main\"><div class=\"player-name\">"+escapeHtml(p.name)+"</div><div class=\"player-sub\">"+escapeHtml(p.uuid)+" · player-data</div></div><div class=\"player-actions\"><button class=\"btn primary small nbt-player-btn\" type=\"button\">Player data</button></div></div>";
+    }).join("");
+    el.querySelectorAll(".player-card").forEach(function(card){
+      card.addEventListener("click",function(){
+        const player=playersData.find(function(p){return p.uuid===card.dataset.playerUuid;});
+        if(player) openPlayerDataMenu(player);
+      });
+    });
+    el.querySelectorAll(".nbt-player-btn").forEach(function(btn){
+      btn.addEventListener("click",function(e){
+        e.stopPropagation();
+        const card=btn.closest(".player-card");
+        const player=playersData.find(function(p){return p.uuid===card.dataset.playerUuid;});
+        if(player) openPlayerDataMenu(player);
+      });
+    });
+  }
   document.getElementById("playersRefreshBtn")?.addEventListener("click",loadPlayers);
   document.getElementById("playersSearch")?.addEventListener("input",renderPlayers);
-
   // ---------- Configuration tab ----------
   function configFileIcon(name) {
     const ext = String(name || "").toLowerCase().split(".").pop();
