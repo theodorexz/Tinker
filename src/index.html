@@ -1363,6 +1363,21 @@
       } catch (_) { return null; }
     }
   }
+
+  async function loadNativeConnectionConfig() {
+    if (!nativeBridgeAvailable()) return null;
+    try {
+      const cfg = await window.__TAURI__.core.invoke("load_connection_config");
+      if (!cfg || typeof cfg !== "object") return null;
+      const raw = JSON.stringify(cfg);
+      try { localStorage.setItem(LS_KEY, raw); } catch (_) {}
+      try { sessionStorage.setItem(LS_KEY, raw); } catch (_) {}
+      return cfg;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function saveConfig(overrides) {
     overrides = overrides || {};
     const cfg = {
@@ -1375,9 +1390,17 @@
     const raw = JSON.stringify(cfg);
     try { localStorage.setItem(LS_KEY, raw); } catch (_) {}
     try { sessionStorage.setItem(LS_KEY, raw); } catch (_) {}
+
+    // Tauri desktop builds persist the connection in the native app config folder.
+    // This survives WebView storage resets/reloads, which localStorage alone does not.
+    if (nativeBridgeAvailable()) {
+      window.__TAURI__.core.invoke("save_connection_config", { config: cfg }).catch(() => {});
+    }
+
     updateSummary(cfg);
     return cfg;
   }
+
   function persistConnectionDraft() {
     saveConfig({
       craftyUrl: els.craftyUrl.value,
@@ -1532,8 +1555,10 @@
 
   let pendingServerId = "";
 
-  (function init() {
-    const cfg = loadConfig();
+  (async function init() {
+    // Native storage is the source of truth in the desktop app.
+    // localStorage/sessionStorage remain a browser-mode fallback.
+    const cfg = (await loadNativeConnectionConfig()) || loadConfig();
     if (cfg) {
       els.craftyUrl.value = cfg.craftyUrl || "";
       els.apiToken.value = cfg.apiToken || "";
