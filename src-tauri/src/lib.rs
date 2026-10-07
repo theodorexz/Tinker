@@ -250,7 +250,8 @@ pub fn run() {
             ping,
             check_for_update,
             install_update,
-            launch_nbt_explorer
+            launch_nbt_explorer,
+            open_external_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tinker");
