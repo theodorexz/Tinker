@@ -271,6 +271,8 @@
     font-size: 0.82rem; color: var(--text-dim); line-height: 1.45; flex: 1;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
   }
+  .card-dependencies { font-size:.72rem; color:var(--text-faint); line-height:1.4; }
+  .card-dependencies strong { color:var(--text-dim); }
 
   .tag-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .badge, .tag-feature {
@@ -359,6 +361,7 @@
   .modal-head h3 { margin: 0; font-size: 1.1rem; }
   .modal-sub { font-size: 0.78rem; color: var(--text-faint); margin-top: 0.2rem; }
   .modal-links { display: flex; flex-wrap: wrap; gap: 0.8rem; margin: 0.8rem 0; font-size: 0.82rem; }
+  .external-link-btn { text-decoration:underline; text-underline-offset:2px; }
   .modal-desc-label { font-size: 0.72rem; color: var(--text-faint); text-transform: lowercase; margin-top: 0.6rem; }
   .modal-desc { word-break:break-word; font-family:var(--sans); font-size:.84rem; line-height:1.58; color:var(--text-dim); max-height:40vh; overflow-y:auto; background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:.8rem .9rem; margin-top:.3rem; }
   .modal-desc h2,.modal-desc h3,.modal-desc h4 { color:var(--text); margin:.9rem 0 .45rem; line-height:1.25; }
@@ -4132,41 +4135,74 @@
     }, { wide: true });
   }
 
+  function renderInlineMarkdown(value) {
+    let out = escapeHtml(value);
+    const codeSlots = [];
+    out = out.replace(new RegExp("`([^`\\n]+)`","g"), function(_, code) {
+      const slot = "@@CODE" + codeSlots.length + "@@";
+      codeSlots.push("<code>" + code + "</code>");
+      return slot;
+    });
+    out = out.replace(new RegExp("\\\\[([^\\\\]]+)\\\\]\\\\((https?:\\/\\/[^\\s)]+)\\\\)","g"), function(_, label, url) {
+      return "<a href=\"#\" data-external-url=\"" + escapeHtml(url) + "\">" + label + "</a>";
+    });
+    out = out.replace(new RegExp("\\\\*\\\\*([^*]+)\\\\*\\\\*","g"), "<strong>$1</strong>");
+    out = out.replace(new RegExp("__([^_]+)__","g"), "<strong>$1</strong>");
+    out = out.replace(new RegExp("\\\\*([^*\\n]+)\\\\*","g"), "<em>$1</em>");
+    out = out.replace(new RegExp("_([^_\\n]+)_","g"), "<em>$1</em>");
+    return out.replace(new RegExp("@@CODE(\\\\d+)@@","g"), function(_, i){ return codeSlots[Number(i)] || ""; });
+  }
+
+  function renderModrinthMarkdown(markdown) {
+    const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+    const out = [];
+    let listType = "";
+    function closeList(){ if(listType){ out.push("</"+listType+">"); listType=""; } }
+    for(const rawLine of lines){
+      const line=rawLine.trimEnd();
+      if(!line.trim()){ closeList(); continue; }
+      let m=line.match(new RegExp("^(#{1,4})\\\\s+(.+)$"));
+      if(m){ closeList(); const level=m[1].length+1; out.push("<h"+level+">"+renderInlineMarkdown(m[2])+"</h"+level+">"); continue; }
+      m=line.match(new RegExp("^>\\\\s?(.*)$"));
+      if(m){ closeList(); out.push("<blockquote>"+renderInlineMarkdown(m[1])+"</blockquote>"); continue; }
+      m=line.match(new RegExp("^[-*+]\\\\s+(.+)$"));
+      if(m){ if(listType!=="ul"){ closeList(); out.push("<ul>"); listType="ul"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
+      m=line.match(new RegExp("^\\\\d+[.)]\\\\s+(.+)$"));
+      if(m){ if(listType!=="ol"){ closeList(); out.push("<ol>"); listType="ol"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
+      closeList(); out.push("<p>"+renderInlineMarkdown(line)+"</p>");
+    }
+    closeList();
+    return out.join("");
+  }
+
+  async function openExternalUrl(url) {
+    const safe=String(url||"").trim();
+    if(!new RegExp("^https?://","i").test(safe)) throw new Error("Only web links can be opened.");
+    if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){ await window.__TAURI__.opener.openUrl(safe); return; }
+    const popup=window.open(safe,"_blank","noopener,noreferrer");
+    if(!popup) throw new Error("The browser blocked opening the link.");
+  }
+
   // ---------- mod info modal ----------
   async function openModInfo(projectId, fallback) {
-    openModal(body => { body.innerHTML = `<div class="modal-loading">Loading…</div>`; });
+    openModal(function(body){ body.innerHTML = '<div class="modal-loading">Loading…</div>'; });
     try {
-      const res = await modrinthFetch("https://api.modrinth.com/v2/project/" + encodeURIComponent(projectId));
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const p = await res.json();
-      const featureTags = (p.categories || []).filter(c => !KNOWN_LOADERS.includes(c));
-      openModal(body => {
-        body.innerHTML = `
-          <div class="modal-head">
-            <img src="${p.icon_url ? escapeHtml(p.icon_url) : ""}" alt="">
-            <div>
-              <h3>${escapeHtml(p.title)}</h3>
-              <div class="modal-sub">${fallback && fallback.author ? ("by " + escapeHtml(fallback.author) + " · ") : ""}${formatCount(p.downloads)} downloads · ${formatCount(p.followers)} followers</div>
-            </div>
-          </div>
-          <div class="tag-row">${featureTags.map(c => `<span class="tag-feature">${escapeHtml(prettyCategory(c))}</span>`).join("")}</div>
-          <div class="modal-links" id="modalLinks"></div>
-          <div class="modal-desc-label">description (plain text)</div>
-          <pre class="modal-desc" id="modalDescPre"></pre>
-        `;
-        const links = [
-          ["Open on Modrinth \u2197", "https://modrinth.com/mod/" + (p.slug || projectId)],
-          ["Source \u2197", p.source_url], ["Issues \u2197", p.issues_url],
-          ["Wiki \u2197", p.wiki_url], ["Discord \u2197", p.discord_url],
-        ].filter(([, u]) => u);
-        body.querySelector("#modalLinks").innerHTML = links.map(([label, url]) =>
-          `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
-        ).join("");
-        body.querySelector("#modalDescPre").textContent = p.body || p.description || "";
+      const res=await modrinthFetch("https://api.modrinth.com/v2/project/"+encodeURIComponent(projectId));
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const p=await res.json();
+      const featureTags=(p.categories||[]).filter(function(c){return !KNOWN_LOADERS.includes(c);});
+      openModal(function(body){
+        body.innerHTML='<div class="modal-head"><img src="'+(p.icon_url?escapeHtml(p.icon_url):"")+'" alt=""><div><h3>'+escapeHtml(p.title)+'</h3><div class="modal-sub">'+(fallback&&fallback.author?("by "+escapeHtml(fallback.author)+" · "):"")+formatCount(p.downloads)+" downloads · "+formatCount(p.followers)+" followers</div></div></div>'+
+          '<div class="tag-row">'+featureTags.map(function(c){return '<span class="tag-feature">'+escapeHtml(prettyCategory(c))+'</span>';}).join("")+'</div><div class="modal-links" id="modalLinks"></div><div class="modal-desc-label">description</div><div class="modal-desc" id="modalDesc"></div>';
+        const links=[["Open on Modrinth ↗","https://modrinth.com/mod/"+(p.slug||projectId)],["Source ↗",p.source_url],["Issues ↗",p.issues_url],["Wiki ↗",p.wiki_url],["Discord ↗",p.discord_url]].filter(function(pair){return pair[1];});
+        const linksEl=body.querySelector("#modalLinks");
+        linksEl.innerHTML=links.map(function(pair){return '<button class="link-btn external-link-btn" type="button" data-url="'+escapeHtml(pair[1])+'">'+escapeHtml(pair[0])+'</button>';}).join("");
+        linksEl.querySelectorAll(".external-link-btn").forEach(function(btn){btn.addEventListener("click",async function(){try{await openExternalUrl(btn.dataset.url);}catch(e){toast("Couldn’t open link: "+(e&&e.message?e.message:e),"error");}});});
+        const descEl=body.querySelector("#modalDesc");
+        descEl.innerHTML=renderModrinthMarkdown(p.body||p.description||"");
+        descEl.querySelectorAll("[data-external-url]").forEach(function(link){link.addEventListener("click",async function(e){e.preventDefault();try{await openExternalUrl(link.dataset.externalUrl);}catch(err){toast("Couldn’t open link: "+(err&&err.message?err.message:err),"error");}});});
       });
-    } catch (e) {
-      openModal(body => { body.innerHTML = `<p class="error-text">Couldn't load mod info: ${escapeHtml(e.message)}</p>`; });
-    }
+    }catch(e){ openModal(function(body){body.innerHTML='<p class="error-text">Couldn\'t load mod info: '+escapeHtml(e.message)+'</p>';}); }
   }
 
   // ---------- category filter chips ----------
@@ -4253,6 +4289,34 @@
     });
   }
 
+  const browseDependencyCache=Object.create(null);
+  const browseDependencyPromises=Object.create(null);
+  async function loadBrowseDependenciesForCard(hit,card){
+    const holder=card&&card.querySelector(".card-dependencies");
+    if(!holder||!hit||!hit.project_id)return;
+    const id=String(hit.project_id);
+    if(Object.prototype.hasOwnProperty.call(browseDependencyCache,id)){
+      const deps=browseDependencyCache[id];
+      holder.innerHTML=deps.length?"<strong>Dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
+      return;
+    }
+    if(!browseDependencyPromises[id]){
+      browseDependencyPromises[id]=(async function(){
+        try{
+          const res=await modrinthFetch("https://api.modrinth.com/v2/project/"+encodeURIComponent(id)+"/dependencies");
+          if(!res.ok)throw new Error("HTTP "+res.status);
+          const data=await res.json();
+          const deps=Array.isArray(data.projects)?data.projects.map(function(p){return String(p.title||p.slug||p.id||"");}).filter(Boolean):[];
+          browseDependencyCache[id]=deps; return deps;
+        }catch(_){browseDependencyCache[id]=[];return []; }
+        finally{delete browseDependencyPromises[id];}
+      })();
+    }
+    const deps=await browseDependencyPromises[id];
+    if(!card.isConnected)return;
+    holder.innerHTML=deps.length?"<strong>Dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
+  }
+
   function renderResults(hits, reset) {
     if (reset) els.grid.innerHTML = "";
     if (!hits.length && reset) {
@@ -4287,6 +4351,7 @@
           </div>
         </div>
         <div class="card-desc">${escapeHtml(hit.description || "")}</div>
+        <div class="card-dependencies"></div>
         <div class="tag-row">${tagsHtml}${compatibleChip}${tagsHtml || compatibleChip ? "" : `<span class="tag-feature">uncategorized</span>`}</div>
         <div class="card-stats">
           <span class="stat">\u2B07 ${formatCount(hit.downloads)}</span>
@@ -4307,6 +4372,7 @@
       infoBtn.addEventListener("click", () => openModInfo(hit.project_id, hit));
 
       els.grid.appendChild(card);
+      loadBrowseDependenciesForCard(hit, card).catch(() => {});
     });
     renderServerState();
   }
