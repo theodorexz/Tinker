@@ -4267,7 +4267,7 @@
       const p=await res.json();
       const featureTags=(p.categories||[]).filter(function(c){return !KNOWN_LOADERS.includes(c);});
       openModal(function(body){
-        body.innerHTML='<div class="modal-head"><img src="'+(p.icon_url?escapeHtml(p.icon_url):"")+'" alt=""><div><h3>'+escapeHtml(p.title)+'</h3><div class="modal-sub">'+(fallback&&fallback.author?("by "+escapeHtml(fallback.author)+" · "):"")+formatCount(p.downloads)+" downloads · "+formatCount(p.followers)+" followers</div></div></div>'+
+        body.innerHTML='<div class="modal-head"><img src="'+(p.icon_url?escapeHtml(p.icon_url):"")+'" alt=""><div><h3>'+escapeHtml(p.title)+'</h3><div class="modal-sub">'+(fallback&&fallback.author?("by "+escapeHtml(fallback.author)+" · "):"")+formatCount(p.downloads)+" downloads · "+formatCount(p.followers)+" followers</div></div></div>"+
           '<div class="tag-row">'+featureTags.map(function(c){return '<span class="tag-feature">'+escapeHtml(prettyCategory(c))+'</span>';}).join("")+'</div><div class="modal-links" id="modalLinks"></div><div class="modal-desc-label">description</div><div class="modal-desc" id="modalDesc"></div>';
         const links=[["Open on Modrinth ↗","https://modrinth.com/mod/"+(p.slug||projectId)],["Source ↗",p.source_url],["Issues ↗",p.issues_url],["Wiki ↗",p.wiki_url],["Discord ↗",p.discord_url]].filter(function(pair){return pair[1];});
         const linksEl=body.querySelector("#modalLinks");
