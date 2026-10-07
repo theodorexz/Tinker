@@ -4032,6 +4032,7 @@
     try {
       const params = new URLSearchParams();
       if (env.loader) params.set("loaders", JSON.stringify([env.loader]));
+      if (env.mcVersion) params.set("game_versions", JSON.stringify([env.mcVersion]));
       const res = await modrinthFetch("https://api.modrinth.com/v2/project/" + encodeURIComponent(entry.projectId) + "/version?" + params.toString() + "&include_changelog=false");
       if (!res.ok) throw new Error("HTTP " + res.status);
       versions = await res.json();
