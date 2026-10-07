@@ -4138,19 +4138,19 @@
   function renderInlineMarkdown(value) {
     let out = escapeHtml(value);
     const codeSlots = [];
-    out = out.replace(new RegExp("`([^`\\n]+)`","g"), function(_, code) {
+    out = out.replace(/`([^`\n]+)`/g, function(_, code) {
       const slot = "@@CODE" + codeSlots.length + "@@";
       codeSlots.push("<code>" + code + "</code>");
       return slot;
     });
-    out = out.replace(new RegExp("\\\\[([^\\\\]]+)\\\\]\\\\((https?:\\/\\/[^\\s)]+)\\\\)","g"), function(_, label, url) {
+    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(_, label, url) {
       return "<a href=\"#\" data-external-url=\"" + escapeHtml(url) + "\">" + label + "</a>";
     });
-    out = out.replace(new RegExp("\\\\*\\\\*([^*]+)\\\\*\\\\*","g"), "<strong>$1</strong>");
-    out = out.replace(new RegExp("__([^_]+)__","g"), "<strong>$1</strong>");
-    out = out.replace(new RegExp("\\\\*([^*\\n]+)\\\\*","g"), "<em>$1</em>");
-    out = out.replace(new RegExp("_([^_\\n]+)_","g"), "<em>$1</em>");
-    return out.replace(new RegExp("@@CODE(\\\\d+)@@","g"), function(_, i){ return codeSlots[Number(i)] || ""; });
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    out = out.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+    out = out.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+    return out.replace(/@@CODE(\d+)@@/g, function(_, i){ return codeSlots[Number(i)] || ""; });
   }
 
   function renderModrinthMarkdown(markdown) {
@@ -4161,13 +4161,13 @@
     for(const rawLine of lines){
       const line=rawLine.trimEnd();
       if(!line.trim()){ closeList(); continue; }
-      let m=line.match(new RegExp("^(#{1,4})\\\\s+(.+)$"));
+      let m=line.match(/^(#{1,4})\s+(.+)$/);
       if(m){ closeList(); const level=m[1].length+1; out.push("<h"+level+">"+renderInlineMarkdown(m[2])+"</h"+level+">"); continue; }
-      m=line.match(new RegExp("^>\\\\s?(.*)$"));
+      m=line.match(/^>\s?(.*)$/);
       if(m){ closeList(); out.push("<blockquote>"+renderInlineMarkdown(m[1])+"</blockquote>"); continue; }
-      m=line.match(new RegExp("^[-*+]\\\\s+(.+)$"));
+      m=line.match(/^[-*+]\s+(.+)$/);
       if(m){ if(listType!=="ul"){ closeList(); out.push("<ul>"); listType="ul"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
-      m=line.match(new RegExp("^\\\\d+[.)]\\\\s+(.+)$"));
+      m=line.match(/^\d+[.)]\s+(.+)$/);
       if(m){ if(listType!=="ol"){ closeList(); out.push("<ol>"); listType="ol"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
       closeList(); out.push("<p>"+renderInlineMarkdown(line)+"</p>");
     }
@@ -4177,7 +4177,7 @@
 
   async function openExternalUrl(url) {
     const safe=String(url||"").trim();
-    if(!new RegExp("^https?://","i").test(safe)) throw new Error("Only web links can be opened.");
+    if(!/^https?:\/\//i.test(safe)) throw new Error("Only web links can be opened.");
     if(window.__TAURI__?.core?.invoke){
       await window.__TAURI__.core.invoke("open_external_url",{url:safe});
       return;
