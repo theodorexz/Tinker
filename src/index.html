@@ -200,6 +200,7 @@
     display: inline-flex; align-items: center; justify-content: center; flex: none;
   }
   .icon-btn:hover { border-color: var(--brand-dim); color: var(--text); }
+  .config-btn svg { width:1rem; height:1rem; }
   .icon-btn.danger:hover { border-color: #4A2E24; color: var(--rust); }
   .icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
@@ -3437,7 +3438,7 @@
           ${hasUpdate ? `<button class="icon-btn update-btn available" data-server-mutation="true" title="Update to ${escapeHtml(latest.version_number)}" type="button">↑</button>` : ""}
           ${entry.projectId ? `<button class="icon-btn version-btn" data-server-mutation="true" title="Change version" type="button">⇅</button>` : ""}
           ${entry.projectId ? `<button class="icon-btn info-btn" title="Mod info" type="button">ⓘ</button>` : ""}
-          ${entry.projectId ? `<button class="icon-btn config-btn" title="Open configuration" type="button">🔧</button>` : ""}
+          ${entry.projectId ? `<button class="icon-btn config-btn" title="Open configuration" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.3 4.3 0 0 0-5.5 5.5l-5 5a1.9 1.9 0 0 0 2.7 2.7l5-5a4.3 4.3 0 0 0 5.5-5.5l-3 3-2.7-2.7 3-3Z"/><path d="m7.1 16.9 1.8-1.8"/></svg></button>` : ""}
           <button class="icon-btn danger delete-btn" data-server-mutation="true" title="Delete from server" type="button" ${entry.filename ? "" : "disabled"}>🗑</button>
         </div>
       </div>
