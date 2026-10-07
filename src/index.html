@@ -630,7 +630,7 @@
 
 <header class="top">
   <div class="top-inner">
-    <div class="wordmark"><span class="glyph"></span>Ore &amp; Jar</div>
+    <div class="wordmark"><span class="glyph"></span>Tinker</div>
     <div class="tagline">Modrinth search and your installed mods, managed straight from Crafty</div>
     <button class="btn ghost small installed-toggle" id="installedToggleBtn" type="button" title="Open Mod Explorer">Explorer <span class="count-badge" id="installedCountBadge">0</span></button>
     <div class="conn-pill" id="connPill"><span class="dot"></span><span id="connLabel">not connected</span></div>
@@ -641,7 +641,7 @@
 </header>
 
 <div class="app-shell">
-  <nav class="tab-nav" id="tabNav" aria-label="Ore &amp; Jar sections">
+  <nav class="tab-nav" id="tabNav" aria-label="Tinker sections">
     <button class="tab-btn active" data-tab="connection" type="button"><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 10.5a8 8 0 0 1 14 0"/><path d="M8 13.5a4.8 4.8 0 0 1 8 0"/><path d="M11 17a1.5 1.5 0 0 1 2 0"/><path d="M12 19v.01"/></svg></span>Connection</button>
     <button class="tab-btn" data-tab="browse" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/></svg></span>Browse Mods</button>
     <button class="tab-btn" data-tab="explorer" type="button" disabled><span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5h6l1.8 2H20a1 1 0 0 1 1 1v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg></span>Explorer <span class="count-badge" id="tabExplorerCount">0</span></button>
@@ -654,7 +654,7 @@
       <div class="page-heading">
         <div>
           <h1>Connection</h1>
-          <p>Connect once, choose your server, and the rest of Ore &amp; Jar unlocks automatically.</p>
+          <p>Connect once, choose your server, and the rest of Tinker unlocks automatically.</p>
         </div>
         <span class="connection-ready-badge" id="connectionReadyBadge">Not configured</span>
       </div>
@@ -677,7 +677,7 @@
                 <select id="serverId" disabled>
                   <option value="">No servers loaded yet</option>
                 </select>
-                <div class="hint">After saving the connection, pick which Minecraft instance Ore &amp; Jar should manage.</div>
+                <div class="hint">After saving the connection, pick which Minecraft instance Tinker should manage.</div>
               </div>
               <input type="text" id="credLabel" name="account" value="" autocomplete="username" class="sr-only" tabindex="-1" aria-hidden="true">
               <div class="field">
@@ -706,9 +706,9 @@
             </div>
           </form>
           <div class="notice">
-            <strong>Safe changes:</strong> Ore &amp; Jar only enables install, update, version-change, delete, and config-save controls when Crafty confirms the Minecraft server is stopped. If the server state or file state becomes uncertain, changes are locked until you refresh.
+            <strong>Safe changes:</strong> Tinker only enables install, update, version-change, delete, and config-save controls when Crafty confirms the Minecraft server is stopped. If the server state or file state becomes uncertain, changes are locked until you refresh.
             <br><br>
-            <strong>Detected environment:</strong> after you choose a server, Ore &amp; Jar reads its executable to detect the loader and Minecraft version automatically. There is no separate loader/version prompt.
+            <strong>Detected environment:</strong> after you choose a server, Tinker reads its executable to detect the loader and Minecraft version automatically. There is no separate loader/version prompt.
           </div>
         </div>
       </details>
@@ -1475,7 +1475,7 @@
   }
 
   async function nativeHttpFetch(url, opts, insecureTls) {
-    if (!nativeBridgeAvailable()) throw new Error("Native networking bridge is unavailable. Launch Ore & Jar as the Tauri desktop app.");
+    if (!nativeBridgeAvailable()) throw new Error("Native networking bridge is unavailable. Launch Tinker as the Tauri desktop app.");
     const response = await invokeNativeHttp(url, opts || {}, Boolean(insecureTls));
     return responseFromNative(response);
   }
@@ -1499,7 +1499,7 @@
           saveTlsPreference(true);
           const retryCfg = { ...cfg, insecureTls: true };
           const nativeResponse = await invokeNativeHttp(url, { ...opts, headers }, true);
-          toast("Crafty uses a local/self-signed HTTPS certificate — Ore & Jar enabled private-network certificate compatibility.", "warn");
+          toast("Crafty uses a local/self-signed HTTPS certificate — Tinker enabled private-network certificate compatibility.", "warn");
           return responseFromNative(nativeResponse);
         }
         throw e;
@@ -1590,7 +1590,7 @@
       if (lower.includes("certificate") || lower.includes("tls") || lower.includes("handshake") || lower.includes("webpki")) {
         friendly = "TLS certificate rejected. For a private Crafty IP, enable the self-signed certificate option and reconnect.";
       } else if (lower.includes("bridge is unavailable")) {
-        friendly = "The Rust networking bridge is not running. Start Ore & Jar with Tauri (npm run dev), not the HTML file.";
+        friendly = "The Rust networking bridge is not running. Start Tinker with Tauri (npm run dev), not the HTML file.";
       } else if (lower.includes("connection refused") || lower.includes("timed out") || lower.includes("dns")) {
         friendly = "Crafty could not be reached at that address. Check the IP, port, VPN/Tailscale connection, and that Crafty is running.";
       }
