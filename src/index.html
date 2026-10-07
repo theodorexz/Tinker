@@ -1350,19 +1350,42 @@
   // ---------- config persistence ----------
 
   function loadConfig() {
-    try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+    try {
+      const raw = localStorage.getItem(LS_KEY) || sessionStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      const cfg = JSON.parse(raw);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)); } catch (_) {}
+      return cfg;
+    } catch (e) {
+      try {
+        const raw = sessionStorage.getItem(LS_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (_) { return null; }
+    }
   }
-  function saveConfig() {
+  function saveConfig(overrides) {
+    overrides = overrides || {};
     const cfg = {
-      craftyUrl: els.craftyUrl.value.trim().replace(/\/+$/, ""),
-      serverId: els.serverId.value.trim(),
-      apiToken: els.apiToken.value.trim(),
-      modsPath: els.modsPath.value.trim() || "mods",
-      insecureTls: Boolean(els.allowInsecureTls?.checked),
+      craftyUrl: String(overrides.craftyUrl !== undefined ? overrides.craftyUrl : els.craftyUrl.value).trim().replace(/\/+$/, ""),
+      serverId: String(overrides.serverId !== undefined ? overrides.serverId : els.serverId.value).trim(),
+      apiToken: String(overrides.apiToken !== undefined ? overrides.apiToken : els.apiToken.value).trim(),
+      modsPath: String(overrides.modsPath !== undefined ? overrides.modsPath : (els.modsPath.value || "mods")).trim() || "mods",
+      insecureTls: overrides.insecureTls !== undefined ? Boolean(overrides.insecureTls) : Boolean(els.allowInsecureTls?.checked),
     };
-    localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+    const raw = JSON.stringify(cfg);
+    try { localStorage.setItem(LS_KEY, raw); } catch (_) {}
+    try { sessionStorage.setItem(LS_KEY, raw); } catch (_) {}
     updateSummary(cfg);
     return cfg;
+  }
+  function persistConnectionDraft() {
+    saveConfig({
+      craftyUrl: els.craftyUrl.value,
+      serverId: els.serverId.value,
+      apiToken: els.apiToken.value,
+      modsPath: els.modsPath.value,
+      insecureTls: Boolean(els.allowInsecureTls?.checked),
+    });
   }
   function getConfig() {
     return {
@@ -1602,9 +1625,15 @@
     connectionVerified = false;
     setTabsUnlocked(false);
     els.credLabel.value = els.craftyUrl.value.trim();
+    // Save the exact values before starting the connection request.
     const cfg = saveConfig();
     loadServers(cfg);
   });
+
+  [els.craftyUrl, els.apiToken, els.modsPath].forEach(function(input) {
+    input.addEventListener("input", persistConnectionDraft);
+  });
+  els.allowInsecureTls?.addEventListener("change", persistConnectionDraft);
   els.refreshBtn.addEventListener("click", () => loadServers(getConfig()));
   els.serverId.addEventListener("change", async () => {
     connectionVerified = Boolean(els.serverId.value);
