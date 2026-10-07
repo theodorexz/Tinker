@@ -3758,7 +3758,8 @@
     if(!connectionConfigured()) return;
     const listEl=document.getElementById("playersList"), status=document.getElementById("playersStatus");
     if(!listEl) return;
-    status.textContent="Loading…"; listEl.innerHTML="<div class=\"skeleton\"></div><div class=\"skeleton\"></div>";
+    status.textContent="Loading…";
+    listEl.innerHTML='<div class="skeleton"></div><div class="skeleton"></div>';
     try{
       const cfg=getConfig(), names=new Map(), entries=[];
       try{
@@ -3769,21 +3770,31 @@
           if(uuid&&name) names.set(uuid,name);
         });
       }catch(_){ }
-      const items=await listCraftyDirectory(cfg,"world/playerdata",null);
-      for(const item of items){
-        if(item.isDirectory || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
-        const rawName=String(item.name||"");
+
+      const archiveBuffer=await downloadCraftyDirectoryArchive(cfg,"world/playerdata");
+      const zipEntries=listZipEntries(archiveBuffer);
+      for(const item of zipEntries){
+        if(item.name.endsWith("/") || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
+        const rawName=basename(item.name);
         const uuidText=rawName.slice(0,-4).replace(/-/g,"").toLowerCase();
         if(uuidText.length!==32 || !/^[0-9a-f]+$/.test(uuidText)) continue;
-        entries.push({uuid:uuidText,name:names.get(uuidText)||("Player "+uuidText.slice(0,8)),dataPath:String(item.path||joinServerPath("world/playerdata",rawName))});
+        entries.push({
+          uuid:uuidText,
+          name:names.get(uuidText)||("Player "+uuidText.slice(0,8)),
+          dataPath:"world/playerdata/"+rawName
+        });
       }
-      playersData=entries.sort(function(a,b){return a.name.localeCompare(b.name);});
-      renderPlayers(); status.textContent=playersData.length+" player"+(playersData.length===1?"":"s")+" found";
+      const unique=new Map();
+      entries.forEach(p=>unique.set(p.uuid,p));
+      playersData=Array.from(unique.values()).sort(function(a,b){return a.name.localeCompare(b.name);});
+      renderPlayers();
+      status.textContent=playersData.length+" player"+(playersData.length===1?"":"s")+" found";
     }catch(e){
-      playersData=[]; listEl.innerHTML="<div class=\"empty-state small\"><strong>Couldn’t load players.</strong><br><br>"+escapeHtml(e.message)+"</div>"; status.textContent="Load failed";
+      playersData=[];
+      listEl.innerHTML='<div class="empty-state small"><strong>Couldn’t load players.</strong><br><br>'+escapeHtml(e.message)+'</div>';
+      status.textContent="Load failed";
     }
   }
-
   function renderPlayers(){
     const q=(document.getElementById("playersSearch")?.value||"").toLowerCase().trim(), el=document.getElementById("playersList");
     if(!el) return;
@@ -3948,22 +3959,186 @@
     return {content:payload.content, attributes:payload.attributes || {}};
   }
 
-  async function writeCraftyTextFile(cfg, filePath, contents, modifiedEpoch) {
-    const clean = String(filePath || "").replace(/\\/g,"/").replace(/^\/+/,"");
-    const body = {path:clean, contents:String(contents), overwrite:false};
+  async function writeCraftyTextFile(cfg, filePath, contents, modifiedEpoch, overwrite) {
+    const clean = String(filePath || "").replace(/\\/g,"/").replace(/^\/+/, "");
+    const body = {path:clean, contents:String(contents), overwrite:Boolean(overwrite)};
     if (Number.isFinite(Number(modifiedEpoch))) body.modified_epoch = Number(modifiedEpoch);
-    let res = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files", {
+    const res = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files", {
       method:"PATCH",
       headers:{"Content-Type":"application/json","Accept":"application/json"},
       body:JSON.stringify(body)
     });
     if (res.status === 409) {
-      // The file changed while the editor was open. Do not silently overwrite it.
       throw new Error("The config file changed on the server while you were editing it. Refresh and open it again.");
     }
     const raw = await res.text().catch(() => "");
     if (!res.ok) throw new Error("HTTP " + res.status + (raw ? " — " + raw.replace(/\s+/g," ").slice(0,360) : ""));
     return true;
+  }
+
+  const SERVER_MUTATION_LOCK_DIR = ".tinker-operation-lock";
+  const SERVER_MUTATION_LOCK_STATE = SERVER_MUTATION_LOCK_DIR + "/state.json";
+  let activeMutationLock = null;
+  let mutationLockHeartbeat = null;
+
+  function getTinkerClientId() {
+    const key = "tinkerClientInstanceId";
+    try {
+      let installation = localStorage.getItem("tinkerInstallationId");
+      if (!installation) {
+        installation = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
+        localStorage.setItem("tinkerInstallationId", installation);
+      }
+      let session = sessionStorage.getItem(key);
+      if (!session) {
+        session = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
+        sessionStorage.setItem(key, session);
+      }
+      return installation + "-" + session;
+    } catch (_) {
+      return "client-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    }
+  }
+
+  async function createCraftyFileEntry(cfg, parent, name, directory) {
+    const res = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/create/", {
+      method:"PUT",
+      headers:{"Content-Type":"application/json","Accept":"application/json"},
+      body:JSON.stringify({parent:String(parent || "."), name:String(name), directory:Boolean(directory)})
+    });
+    const raw = await res.text().catch(() => "");
+    return {status:res.status, raw};
+  }
+
+  async function readMutationLock(cfg) {
+    try {
+      const buffer = await downloadCraftyRawFileBuffer(cfg, SERVER_MUTATION_LOCK_STATE);
+      const raw = new TextDecoder().decode(new Uint8Array(buffer));
+      const state = JSON.parse(raw);
+      return state && typeof state === "object" ? state : null;
+    } catch (e) {
+      if (Number(e?.status) === 404) return null;
+      throw e;
+    }
+  }
+
+  async function deleteServerPath(cfg, path) {
+    const clean = String(path || "").replace(/\\/g,"/").replace(/^\/+|\/+$/g,"");
+    const res = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files", {
+      method:"DELETE",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({file_system_objects:[{filename:clean}]})
+    });
+    const raw = await res.text().catch(() => "");
+    if (!res.ok && res.status !== 404) {
+      throw new Error("HTTP " + res.status + (raw ? " — " + raw.replace(/\s+/g," ").slice(0,260) : ""));
+    }
+    return res.status === 200 || res.status === 404;
+  }
+
+  async function renewMutationLock() {
+    const lock = activeMutationLock;
+    if (!lock) return;
+    const state = {
+      version:1,
+      clientId:lock.clientId,
+      leaseId:lock.leaseId,
+      action:lock.action,
+      startedAt:lock.startedAt,
+      expiresAt:new Date(Date.now() + 30000).toISOString()
+    };
+    try {
+      await writeCraftyTextFile(lock.cfg, SERVER_MUTATION_LOCK_STATE, JSON.stringify(state, null, 2), undefined, true);
+      lock.expiresAt = state.expiresAt;
+    } catch (_) {}
+  }
+
+  async function acquireServerMutationLock(cfg, action) {
+    if (activeMutationLock) return activeMutationLock;
+    const clientId = getTinkerClientId();
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const created = await createCraftyFileEntry(cfg, ".", SERVER_MUTATION_LOCK_DIR, true);
+      if (created.status >= 200 && created.status < 300) {
+        try {
+          const stateFile = await createCraftyFileEntry(cfg, SERVER_MUTATION_LOCK_DIR, "state.json", false);
+          if (!(stateFile.status >= 200 && stateFile.status < 300)) {
+            await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR);
+            throw new Error("Could not initialize the Tinker server operation lock.");
+          }
+          const leaseId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
+          const state = {
+            version:1,
+            clientId,
+            leaseId,
+            action:String(action || "change server files"),
+            startedAt:new Date().toISOString(),
+            expiresAt:new Date(Date.now() + 30000).toISOString()
+          };
+          await writeCraftyTextFile(cfg, SERVER_MUTATION_LOCK_STATE, JSON.stringify(state, null, 2), undefined, true);
+          activeMutationLock = {cfg:{...cfg}, clientId, leaseId, action:state.action, startedAt:state.startedAt, expiresAt:state.expiresAt};
+          if (mutationLockHeartbeat) clearInterval(mutationLockHeartbeat);
+          mutationLockHeartbeat = setInterval(() => { renewMutationLock().catch(() => {}); }, 10000);
+          return activeMutationLock;
+        } catch (e) {
+          try { await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR); } catch (_) {}
+          throw e;
+        }
+      }
+
+      if (created.status === 400 && /FILE EXISTS|already exists/i.test(String(created.raw || ""))) {
+        let existing = null;
+        try { existing = await readMutationLock(cfg); } catch (_) {}
+        if (!existing) {
+          await new Promise(resolve => setTimeout(resolve, 700));
+          continue;
+        }
+        const expires = Date.parse(existing.expiresAt || "");
+        if (Number.isFinite(expires) && expires <= Date.now()) {
+          try { await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR); } catch (_) {}
+          await new Promise(resolve => setTimeout(resolve, 250));
+          continue;
+        }
+        throw new Error("Another Tinker user is currently " + String(existing.action || "changing this server") + ". Please wait for them to finish, then try again.");
+      }
+
+      throw new Error("Could not create the Tinker server operation lock (HTTP " + created.status + ").");
+    }
+
+    throw new Error("Another Tinker user is currently changing this server. Please wait a moment and try again.");
+  }
+
+  async function releaseServerMutationLock() {
+    const lock = activeMutationLock;
+    if (!lock) return;
+    activeMutationLock = null;
+    if (mutationLockHeartbeat) {
+      clearInterval(mutationLockHeartbeat);
+      mutationLockHeartbeat = null;
+    }
+    try {
+      const current = await readMutationLock(lock.cfg);
+      if (current && current.clientId === lock.clientId && current.leaseId === lock.leaseId) {
+        await deleteServerPath(lock.cfg, SERVER_MUTATION_LOCK_DIR);
+      }
+    } catch (_) {}
+  }
+
+  async function withServerMutationLock(action, fn) {
+    const cfg = getConfig();
+    if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) throw new Error("Crafty connection is not configured");
+    await requireServerStopped(action);
+    await checkModsFolderForChanges();
+    if (folderDirty) throw new Error("Files have been modified elsewhere, please refresh!");
+    await acquireServerMutationLock(cfg, action);
+    try {
+      await requireServerStopped(action);
+      await checkModsFolderForChanges();
+      if (folderDirty) throw new Error("Files have been modified elsewhere, please refresh!");
+      return await fn(cfg);
+    } finally {
+      await releaseServerMutationLock();
+    }
   }
 
   function parseSimpleProperties(text) {
