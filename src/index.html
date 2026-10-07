@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ore &amp; Jar — Mod Manager for Crafty Controller</title>
+<title>Tinker MC — Mod Manager for Crafty Controller</title>
+<link rel="icon" type="image/png" href="app-icon.png">
 <style>
   :root{
     --bg:        #0B0D0F;
@@ -85,20 +86,7 @@
     align-items: center;
     gap: 0.5rem;
   }
-  .wordmark .glyph {
-    display: inline-block;
-    width: 1.1em; height: 1.1em;
-    border-radius: 4px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
-    position: relative;
-    flex: none;
-  }
-  .wordmark .glyph::after {
-    content: "";
-    position: absolute; inset: 3px;
-    border: 1px solid rgba(0,0,0,0.25);
-    border-radius: 2px;
-  }
+  .wordmark .app-logo { width:1.35rem; height:1.35rem; border-radius:5px; object-fit:cover; flex:none; border:1px solid var(--border-soft); }
   .tagline { color: var(--text-dim); font-size: 0.88rem; }
 
   .count-badge {
@@ -372,12 +360,16 @@
   .modal-sub { font-size: 0.78rem; color: var(--text-faint); margin-top: 0.2rem; }
   .modal-links { display: flex; flex-wrap: wrap; gap: 0.8rem; margin: 0.8rem 0; font-size: 0.82rem; }
   .modal-desc-label { font-size: 0.72rem; color: var(--text-faint); text-transform: lowercase; margin-top: 0.6rem; }
-  .modal-desc {
-    white-space: pre-wrap; word-break: break-word; font-family: var(--sans); font-size: 0.84rem;
-    line-height: 1.55; color: var(--text-dim); max-height: 40vh; overflow-y: auto;
-    background: var(--bg-raised); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
-    padding: 0.7rem 0.85rem; margin-top: 0.3rem;
-  }
+  .modal-desc { word-break:break-word; font-family:var(--sans); font-size:.84rem; line-height:1.58; color:var(--text-dim); max-height:40vh; overflow-y:auto; background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:.8rem .9rem; margin-top:.3rem; }
+  .modal-desc h2,.modal-desc h3,.modal-desc h4 { color:var(--text); margin:.9rem 0 .45rem; line-height:1.25; }
+  .modal-desc h2 { font-size:1rem; } .modal-desc h3 { font-size:.92rem; } .modal-desc h4 { font-size:.86rem; }
+  .modal-desc p { margin:.45rem 0; } .modal-desc p:first-child { margin-top:0; } .modal-desc p:last-child { margin-bottom:0; }
+  .modal-desc ul,.modal-desc ol { margin:.45rem 0 .65rem 1.25rem; padding:0; } .modal-desc li { margin:.2rem 0; }
+  .modal-desc blockquote { margin:.6rem 0; padding:.45rem .7rem; border-left:3px solid var(--border); color:var(--text-faint); background:rgba(255,255,255,.02); }
+  .modal-desc code { font:.78em var(--mono); background:#0d1012; border:1px solid var(--border-soft); padding:.08rem .28rem; border-radius:4px; color:var(--brand-bright); }
+  .modal-desc pre { overflow:auto; background:#0a0c0e; border:1px solid var(--border-soft); border-radius:6px; padding:.65rem .75rem; }
+  .modal-desc pre code { border:0; padding:0; background:transparent; color:var(--text-dim); }
+  .modal-desc a { color:var(--brand-bright); }
   .modal-loading { padding: 2rem; text-align: center; color: var(--text-faint); font-size: 0.85rem; }
   .error-text { color: var(--rust); font-size: 0.85rem; }
 
@@ -502,7 +494,9 @@
   .players-search { flex:1 1 260px; }
   .players-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.7rem; }
   .player-card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:.85rem; display:flex; align-items:center; gap:.7rem; }
-  .player-avatar { width:44px; height:44px; border-radius:50%; background:var(--bg-raised); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--brand-bright); flex:none; }
+  .player-avatar { width:48px; height:48px; border-radius:8px; background:var(--bg-raised); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--brand-bright); flex:none; overflow:hidden; image-rendering:pixelated; }
+  .player-avatar img { width:100%; height:100%; object-fit:cover; image-rendering:pixelated; }
+  .player-card { cursor:pointer; } .player-card:hover { border-color:var(--brand-dim); background:var(--panel-2); }
   .player-main { min-width:0; flex:1; }
   .player-name { font-weight:700; font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .player-sub { color:var(--text-faint); font-family:var(--mono); font-size:.66rem; margin-top:.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -630,7 +624,7 @@
 
 <header class="top">
   <div class="top-inner">
-    <div class="wordmark"><span class="glyph"></span>Tinker</div>
+    <div class="wordmark"><img class="app-logo" src="app-icon.png" alt="">Tinker</div>
     <div class="tagline">Modrinth search and your installed mods, managed straight from Crafty</div>
     <button class="btn ghost small installed-toggle" id="installedToggleBtn" type="button" title="Open Mod Explorer">Explorer <span class="count-badge" id="installedCountBadge">0</span></button>
     <div class="conn-pill" id="connPill"><span class="dot"></span><span id="connLabel">not connected</span></div>
@@ -822,7 +816,7 @@
         <div><h1>Players</h1><p>Players known to the server, with quick access to their player-data file.</p></div>
         <button class="btn ghost small" id="playersRefreshBtn" type="button">&#8635; Refresh players</button>
       </div>
-      <div class="wip-warning"><strong>WARNING: Work in Progress.</strong> Player discovery and NBT editing are still being built. Tinker will not directly edit player data in this tab.</div>
+      <div class="wip-warning"><strong>WARNING: Work in Progress.</strong> Players are discovered from <code>world/playerdata</code>. NBT Explorer opens a local copy of the actual player-data file; syncing edits back to Crafty will come next.</div>
       <div class="players-toolbar"><input class="players-search" id="playersSearch" type="search" placeholder="Search players or UUIDs…" autocomplete="off"><span class="muted" id="playersStatus">Not loaded</span></div>
       <div class="players-list" id="playersList"><div class="empty-state small">Connect to Crafty to load players.</div></div>
     </section>
@@ -1638,14 +1632,23 @@
   async function detectServerEnv(cfg) {
     if (!cfg.serverId) { env = { loader:"", mcVersion:"", raw:"", manual:false }; renderEnvBadge(); return; }
     try {
-      const res = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId), { method: "GET" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
+      const serverRes = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId), { method:"GET" });
+      if (!serverRes.ok) throw new Error("HTTP " + serverRes.status);
+      const data = await serverRes.json();
       const info = data.data || data;
-      env = detectEnvFromExecutable(info.executable, info.type);
-    } catch (e) {
-      env = { loader:"", mcVersion:"", raw:"", manual:false };
-    }
+      const exeEnv = detectEnvFromExecutable(info.executable, info.type);
+      let mcVersion = "";
+      try {
+        const items = await listCraftyDirectory(cfg, "versions", info);
+        const versions = Array.from(new Set(items.filter(i=>i.isDirectory).map(i=>basename(i.path||i.name)).map(String).filter(v=>/^\\d+\\.\\d+(?:\\.\\d+)?$/.test(v))));
+        if (versions.length === 1) mcVersion = versions[0];
+        else if (versions.length > 1) {
+          versions.sort((x,y)=>{const a=x.split(".").map(Number),b=y.split(".").map(Number);for(let i=0;i<3;i++){const d=(b[i]||0)-(a[i]||0);if(d)return d;}return 0;});
+          mcVersion = versions[0];
+        }
+      } catch (_) {}
+      env = { loader:exeEnv.loader||"", mcVersion:mcVersion||exeEnv.mcVersion||"", raw:mcVersion?((info.executable||"")+" · versions/"+mcVersion):(info.executable||""), manual:false, source:mcVersion?"versions-folder":"executable" };
+    } catch (e) { env = { loader:"", mcVersion:"", raw:"", manual:false }; }
     renderEnvBadge();
   }
 
@@ -3439,10 +3442,10 @@
   }
 
   function renderExplorerGroups(list) {
-    const visible = list.filter(e => !e.isDependency);
-    const dependencyOnly = list.filter(e => e.isDependency);
-    if (!visible.length && !dependencyOnly.length) return `<div class="empty-state small">No installed mods match these filters.</div>`;
-    return visible.map(renderMainExplorerEntry).join("") + (dependencyOnly.length && !visible.length ? dependencyOnly.map(renderMainExplorerEntry).join("") : "");
+    if (!list.length) return `<div class="empty-state small">No installed mods match these filters.</div>`;
+    // Dependencies are first-class installed mods: keep their nested tree under the parent,
+    // but also render their own full cards so they can be updated/inspected/configured.
+    return list.map(renderMainExplorerEntry).join("");
   }
 
   function renderDirtyNotice() {
