@@ -1378,25 +1378,36 @@
     }
   }
 
-  function saveConfig(overrides) {
+  function makeConnectionConfig(overrides) {
     overrides = overrides || {};
-    const cfg = {
+    return {
       craftyUrl: String(overrides.craftyUrl !== undefined ? overrides.craftyUrl : els.craftyUrl.value).trim().replace(/\/+$/, ""),
       serverId: String(overrides.serverId !== undefined ? overrides.serverId : els.serverId.value).trim(),
       apiToken: String(overrides.apiToken !== undefined ? overrides.apiToken : els.apiToken.value).trim(),
       modsPath: String(overrides.modsPath !== undefined ? overrides.modsPath : (els.modsPath.value || "mods")).trim() || "mods",
       insecureTls: overrides.insecureTls !== undefined ? Boolean(overrides.insecureTls) : Boolean(els.allowInsecureTls?.checked),
     };
+  }
+
+  async function persistConnectionConfig(cfg) {
     const raw = JSON.stringify(cfg);
     try { localStorage.setItem(LS_KEY, raw); } catch (_) {}
     try { sessionStorage.setItem(LS_KEY, raw); } catch (_) {}
-
-    // Tauri desktop builds persist the connection in the native app config folder.
-    // This survives WebView storage resets/reloads, which localStorage alone does not.
     if (nativeBridgeAvailable()) {
-      window.__TAURI__.core.invoke("save_connection_config", { config: cfg }).catch(() => {});
+      await window.__TAURI__.core.invoke("save_connection_config", { config: cfg });
     }
+  }
 
+  function saveConfig(overrides) {
+    const cfg = makeConnectionConfig(overrides);
+    const raw = JSON.stringify(cfg);
+    try { localStorage.setItem(LS_KEY, raw); } catch (_) {}
+    try { sessionStorage.setItem(LS_KEY, raw); } catch (_) {}
+    // Best-effort background persistence for live field edits. The Connect button
+    // explicitly awaits the same native write before making the network request.
+    if (nativeBridgeAvailable()) {
+      persistConnectionConfig(cfg).catch(() => {});
+    }
     updateSummary(cfg);
     return cfg;
   }
@@ -1641,14 +1652,23 @@
     }
   }
 
-  els.credForm.addEventListener("submit", (e) => {
+  els.credForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     connectionVerified = false;
     setTabsUnlocked(false);
     els.credLabel.value = els.craftyUrl.value.trim();
-    // Save the exact values before starting the connection request.
-    const cfg = saveConfig();
-    loadServers(cfg);
+
+    // The connection button MUST finish the native disk write before contacting Crafty.
+    const cfg = makeConnectionConfig();
+    try {
+      await persistConnectionConfig(cfg);
+    } catch (err) {
+      els.testResult.textContent = "Couldn't save connection settings";
+      toast("Couldn't save Tinker connection settings: " + (err?.message || err), "error");
+      return;
+    }
+    updateSummary(cfg);
+    await loadServers(cfg);
   });
 
   [els.craftyUrl, els.apiToken, els.modsPath].forEach(function(input) {
