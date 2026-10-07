@@ -1,6 +1,6 @@
 [package]
 name = "tinker-mc"
-version = "0.2.0"
+version = "0.2.1"
 description = "Tinker — a fast Minecraft mod (and other stuff) manager for Crafty Controller"
 authors = ["Tinker MC"]
 edition = "2021"
