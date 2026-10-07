@@ -3764,7 +3764,24 @@
         });
       }catch(_){ }
 
-      const archiveBuffer=await downloadCraftyDirectoryArchive(cfg,"world/playerdata");
+      // Modern server layouts commonly keep player NBT under world/players/data.
+      // Keep the older world/playerdata path as a compatibility fallback.
+      const playerDataPaths=["world/players/data","world/playerdata"];
+      let archiveBuffer=null, usedPlayerDataPath="";
+      let lastPlayerDataError=null;
+
+      for(const playerDataPath of playerDataPaths){
+        try{
+          archiveBuffer=await downloadCraftyDirectoryArchive(cfg,playerDataPath);
+          usedPlayerDataPath=playerDataPath;
+          break;
+        }catch(e){
+          lastPlayerDataError=e;
+        }
+      }
+
+      if(!archiveBuffer) throw lastPlayerDataError || new Error("Could not download the player-data directory");
+
       const zipEntries=listZipEntries(archiveBuffer);
       for(const item of zipEntries){
         if(item.name.endsWith("/") || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
@@ -3774,9 +3791,10 @@
         entries.push({
           uuid:uuidText,
           name:names.get(uuidText)||("Player "+uuidText.slice(0,8)),
-          dataPath:"world/playerdata/"+rawName
+          dataPath:usedPlayerDataPath+"/"+rawName
         });
       }
+
       const unique=new Map();
       entries.forEach(p=>unique.set(p.uuid,p));
       playersData=Array.from(unique.values()).sort(function(a,b){return a.name.localeCompare(b.name);});
