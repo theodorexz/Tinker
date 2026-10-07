@@ -820,7 +820,7 @@
         <div><h1>Players</h1><p>Players known to the server, with quick access to their player-data file.</p></div>
         <button class="btn ghost small" id="playersRefreshBtn" type="button">&#8635; Refresh players</button>
       </div>
-      <div class="wip-warning"><strong>WARNING: Work in Progress.</strong> Players are discovered from <code>world/playerdata</code>. NBT Explorer opens a local copy of the actual player-data file; syncing edits back to Crafty will come next.</div>
+      <div class="wip-warning"><strong>WARNING: Work in Progress.</strong> Players are discovered from <code>world/players/data</code> (with <code>world/playerdata</code> as a compatibility fallback). NBT Explorer opens a local copy of the actual player-data file; syncing edits back to Crafty will come next.</div>
       <div class="players-toolbar"><input class="players-search" id="playersSearch" type="search" placeholder="Search players or UUIDs…" autocomplete="off"><span class="muted" id="playersStatus">Not loaded</span></div>
       <div class="players-list" id="playersList"><div class="empty-state small">Connect to Crafty to load players.</div></div>
     </section>
@@ -1714,7 +1714,7 @@
       let mcVersion = "";
       try {
         const items = await listCraftyDirectory(cfg, "versions", info);
-        const versions = Array.from(new Set(items.filter(i=>i.isDirectory).map(i=>basename(i.path||i.name)).map(String).filter(v=>/^\\d+\\.\\d+(?:\\.\\d+)?$/.test(v))));
+        const versions = Array.from(new Set(items.filter(i=>i.isDirectory).map(i=>basename(i.path||i.name)).map(String).filter(v=>/^\d+\.\d+(?:\.\d+)?$/.test(v))));
         if (versions.length === 1) mcVersion = versions[0];
         else if (versions.length > 1) {
           versions.sort((x,y)=>{const a=x.split(".").map(Number),b=y.split(".").map(Number);for(let i=0;i<3;i++){const d=(b[i]||0)-(a[i]||0);if(d)return d;}return 0;});
@@ -3764,15 +3764,15 @@
         });
       }catch(_){ }
 
-      // Modern server layouts commonly keep player NBT under world/players/data.
-      // Keep the older world/playerdata path as a compatibility fallback.
+      // Crafty's POST /files endpoint is the reliable way to list an existing nested
+      // directory. Use the current Crafty player-data layout first.
       const playerDataPaths=["world/players/data","world/playerdata"];
-      let archiveBuffer=null, usedPlayerDataPath="";
+      let items=null, usedPlayerDataPath="";
       let lastPlayerDataError=null;
 
       for(const playerDataPath of playerDataPaths){
         try{
-          archiveBuffer=await downloadCraftyDirectoryArchive(cfg,playerDataPath);
+          items=await listCraftyDirectory(cfg,playerDataPath,null);
           usedPlayerDataPath=playerDataPath;
           break;
         }catch(e){
@@ -3780,12 +3780,11 @@
         }
       }
 
-      if(!archiveBuffer) throw lastPlayerDataError || new Error("Could not download the player-data directory");
+      if(!items) throw lastPlayerDataError || new Error("Could not read the player-data directory");
 
-      const zipEntries=listZipEntries(archiveBuffer);
-      for(const item of zipEntries){
-        if(item.name.endsWith("/") || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
-        const rawName=basename(item.name);
+      for(const item of items){
+        if(item.isDirectory || !String(item.name||"").toLowerCase().endsWith(".dat")) continue;
+        const rawName=basename(item.path || item.name);
         const uuidText=rawName.slice(0,-4).replace(/-/g,"").toLowerCase();
         if(uuidText.length!==32 || !/^[0-9a-f]+$/.test(uuidText)) continue;
         entries.push({
