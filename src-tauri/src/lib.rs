@@ -220,6 +220,7 @@ async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             crafty_request,
             ping,
