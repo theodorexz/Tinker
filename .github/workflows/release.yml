@@ -39,9 +39,9 @@ jobs:
           tagName: app-v__VERSION__
           releaseName: Tinker v__VERSION__
           releaseBody: |
-            ## Tinker 0.2.0
+            ## Tinker 0.2.1
 
-            A real feature release focused on server persistence, mod compatibility, and the desktop experience.
+            A bugfix release focused on dependency management, player-data tooling, Modrinth compatibility, and the desktop experience.
 
             - Removed the redundant “Already installed” button.
             - Manual Modrinth links are saved on the Crafty server and follow the server to other computers.
@@ -50,6 +50,11 @@ jobs:
             - Added a structured Configuration editor with toggles, numeric controls, and an advanced raw editor.
             - Configuration now hides mods without recognized config files and shows a strong warning explaining why.
             - Released Windows builds no longer open an extra terminal window.
+            - Added a first-class dependency list in Explorer and Browse Mods.
+            - Added a player-data menu that opens the actual server player-data file as a local NBT Explorer copy.
+            - Fixed Modrinth descriptions, external links, and Minecraft-version filtering.
+            - Fixed the Configuration wrench and app branding icons.
+            - Added a first-class dependency list in Explorer and Browse Mods.
             - Added the Tauri signed updater pipeline.
           releaseDraft: false
           prerelease: false
