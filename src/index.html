@@ -3264,20 +3264,20 @@
       const { version, file } = await findMatchingVersion(hit.project_id);
       setBtnState(btn, "working", "Downloading…");
       const buf = await downloadModrinthFile(file, "standalone");
-      setBtnState(btn, "working", "Checking server…");
-      await requireServerStopped("install a mod");
-      setBtnState(btn, "working", "Uploading…");
-      await uploadJarToServer(cfg, file, buf);
-      upsertRegistry({
-        projectId: hit.project_id, slug: hit.slug, title: hit.title, author: hit.author,
-        iconUrl: hit.icon_url, versionId: version.id, versionNumber: version.version_number,
-        versionType: version.version_type, filename: file.filename,
-        loader: env.loader, gameVersions: version.game_versions, categories: hit.categories || [],
-        installedAt: new Date().toISOString(), source: "installed",
+      await withServerMutationLock("install " + hit.title, async function(lockCfg) {
+        setBtnState(btn, "working", "Uploading…");
+        await uploadJarToServer(lockCfg, file, buf);
+        upsertRegistry({
+          projectId: hit.project_id, slug: hit.slug, title: hit.title, author: hit.author,
+          iconUrl: hit.icon_url, versionId: version.id, versionNumber: version.version_number,
+          versionType: version.version_type, filename: file.filename,
+          loader: env.loader, gameVersions: version.game_versions, categories: hit.categories || [],
+          installedAt: new Date().toISOString(), source: "installed",
+        });
+        setBtnState(btn, "installed", "✓ Installed");
+        toast(hit.title + " installed", "ok");
+        await scanInstalledMods();
       });
-      setBtnState(btn, "installed", "\u2713 Installed");
-      toast(hit.title + " installed", "ok");
-      await scanInstalledMods();
     } catch (e) {
       setBtnState(btn, "error", "Failed — retry");
       logEl.textContent = e.message;
@@ -3294,19 +3294,10 @@
       if (!chosen && version.id === entry.versionId) { toast(entry.title + " is already up to date", "ok"); return; }
 
       const buf = await downloadModrinthFile(file, "update");
-      const cfg = getConfig();
-      await requireServerStopped("update a mod");
-
-      // Keep the Modrinth identity attached to the NEW JAR, not just the old filename/hash.
-      // This is especially important for manually linked mods: a version update creates a
-      // different JAR hash, so the server-side link must be repointed before the rescan.
       let newSha1 = "";
       let newSha512 = "";
       try { newSha1 = await sha1Hex(buf); } catch (_) {}
       try { newSha512 = await sha512Hex(buf); } catch (_) {}
-
-      // Rebuild the local preview from the newly downloaded JAR. This is local work and
-      // avoids losing the nice in-JAR icon after an update/rescan.
       let newLocalIconDataUrl = entry.localIconDataUrl || "";
       let newLocalIconPath = entry.localIconPath || "";
       try {
@@ -3317,55 +3308,54 @@
         }
       } catch (_) {}
 
-      await uploadJarToServer(cfg, file, buf);
+      await withServerMutationLock("update " + entry.title, async function(cfg) {
+        await uploadJarToServer(cfg, file, buf);
 
-      const oldPath = entry.filePath || joinServerPath(cfg.modsPath, entry.filename);
-      if (entry.filename && entry.filename !== file.filename) {
-        try {
-          await requireServerStopped("finish a mod update");
-          await deleteJarFromServer(cfg, oldPath);
+        const oldPath = entry.filePath || joinServerPath(cfg.modsPath, entry.filename);
+        if (entry.filename && entry.filename !== file.filename) {
+          try {
+            await requireServerStopped("finish a mod update");
+            await deleteJarFromServer(cfg, oldPath);
+          } catch (e) {
+            toast("Installed " + version.version_number + ", but couldn't remove the old file (" + entry.filename + ") — delete it by hand.", "warn");
+          }
         }
-        catch (e) {
-          toast("Installed " + version.version_number + ", but couldn't remove the old file (" + entry.filename + ") — delete it by hand.", "warn");
-        }
-      }
 
-      const updatedEntry = Object.assign({}, entry, {
-        versionId: version.id,
-        versionNumber: version.version_number,
-        versionType: version.version_type,
-        filename: file.filename,
-        filePath: joinServerPath(cfg.modsPath, file.filename),
-        fileSize: buf.byteLength,
-        gameVersions: version.game_versions || [],
-        loaderList: version.loaders || [],
-        matchedFilename: file.filename,
-        dependencies: Array.isArray(version.dependencies) ? version.dependencies : [],
-        sha1: newSha1 || entry.sha1 || "",
-        sha512: newSha512 || entry.sha512 || "",
-        localIconDataUrl: newLocalIconDataUrl,
-        localIconPath: newLocalIconPath,
-        source: entry.source === "server-link" ? "server-link" : "installed",
+        const updatedEntry = Object.assign({}, entry, {
+          versionId: version.id,
+          versionNumber: version.version_number,
+          versionType: version.version_type,
+          filename: file.filename,
+          filePath: joinServerPath(cfg.modsPath, file.filename),
+          fileSize: buf.byteLength,
+          gameVersions: version.game_versions || [],
+          loaderList: version.loaders || [],
+          matchedFilename: file.filename,
+          dependencies: Array.isArray(version.dependencies) ? version.dependencies : [],
+          sha1: newSha1 || entry.sha1 || "",
+          sha512: newSha512 || entry.sha512 || "",
+          localIconDataUrl: newLocalIconDataUrl,
+          localIconPath: newLocalIconPath,
+          source: entry.source === "server-link" ? "server-link" : "installed",
+        });
+
+        if (entry.source === "server-link" || entry.matchType === "manual") {
+          updatedEntry._scanBuffer = buf;
+          try {
+            await saveServerModLink(updatedEntry);
+          } finally {
+            delete updatedEntry._scanBuffer;
+          }
+        }
+
+        upsertRegistry(updatedEntry);
+        installedMods = installedMods.map(e => e === entry || e.filename === entry.filename ? updatedEntry : e);
+        toast(entry.title + " set to v" + version.version_number, "ok");
+        delete latestCache[entry.projectId];
+
+        if (!options.skipRescan) await scanInstalledMods();
+        else renderSidebar();
       });
-
-      // Only repoint the server-side manual link when this file was manually linked.
-      // Automatic Modrinth matches do not need to be turned into manual links.
-      if (entry.source === "server-link" || entry.matchType === "manual") {
-        updatedEntry._scanBuffer = buf;
-        try {
-          await saveServerModLink(updatedEntry);
-        } finally {
-          delete updatedEntry._scanBuffer;
-        }
-      }
-
-      upsertRegistry(updatedEntry);
-      installedMods = installedMods.map(e => e === entry || e.filename === entry.filename ? updatedEntry : e);
-      toast(entry.title + " set to v" + version.version_number, "ok");
-      delete latestCache[entry.projectId];
-
-      if (!options.skipRescan) await scanInstalledMods();
-      else renderSidebar();
     } catch (e) {
       toast("Update failed for " + entry.title + ": " + e.message, "error");
       if (options.rethrow) throw e;
@@ -3376,15 +3366,16 @@
     try { await requireServerStopped("delete a mod"); } catch (e) { toast(e.message, "warn"); renderServerState(); return; }
     if (!confirm("Delete " + entry.title + (entry.filename ? " (" + entry.filename + ")" : "") + " from the server's mods folder?")) return;
     try {
-      await requireServerStopped("delete a mod");
-      await deleteJarFromServer(getConfig(), entry.filePath || joinServerPath(getConfig().modsPath, entry.filename));
-      removeFromRegistry(entry.projectId, entry.filename);
-      installedMods = installedMods.filter(e => e.filename !== entry.filename);
-      hasLiveScan = true;
-      toast(entry.title + " removed", "ok");
-      renderSidebar();
-      refreshSearchCardStates();
-      scanInstalledMods();
+      await withServerMutationLock("delete " + entry.title, async function(cfg) {
+        await deleteJarFromServer(cfg, entry.filePath || joinServerPath(cfg.modsPath, entry.filename));
+        removeFromRegistry(entry.projectId, entry.filename);
+        installedMods = installedMods.filter(e => e.filename !== entry.filename);
+        hasLiveScan = true;
+        toast(entry.title + " removed", "ok");
+        renderSidebar();
+        refreshSearchCardStates();
+        await scanInstalledMods();
+      });
     } catch (e) {
       toast("Couldn't delete " + entry.title + ": " + e.message, "error");
     }
@@ -3660,35 +3651,37 @@
             });
             btn.disabled = true;
             try {
-              await saveServerModLink(updated);
-              installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
-              upsertRegistry(updated);
-              renderSidebar(); refreshSearchCardStates(); closeModal();
-              toast(hit.title + " linked and saved to this Crafty server", "ok");
+              await withServerMutationLock("link " + hit.title, async function() {
+                await saveServerModLink(updated);
+                installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
+                upsertRegistry(updated);
+
+                try {
+                  const found = await findVersionContainingFilename(hit.project_id, entry.filename);
+                  if (found) {
+                    const linkedEntry = installedMods.find(e => e.filename === entry.filename);
+                    if (linkedEntry) {
+                      Object.assign(linkedEntry,{
+                        versionId:found.version.id, versionNumber:found.version.version_number,
+                        versionType:found.version.version_type, gameVersions:found.version.game_versions || [],
+                        matchedFilename:found.file.filename,
+                        dependencies:Array.isArray(found.version.dependencies) ? found.version.dependencies : []
+                      });
+                      upsertRegistry(linkedEntry);
+                      try { await saveServerModLink(linkedEntry); } catch (_) {}
+                    }
+                  }
+                } catch (_) {}
+
+                renderSidebar(); refreshSearchCardStates(); closeModal();
+                toast(hit.title + " linked and saved to this Crafty server", "ok");
+              });
             } catch (saveError) {
-              installedMods = installedMods.map(e => e.filename === entry.filename ? updated : e);
-              upsertRegistry(updated);
-              renderSidebar(); refreshSearchCardStates(); closeModal();
-              toast(hit.title + " linked locally, but saving to the server failed: " + saveError.message, "warn");
+              btn.disabled = false;
+              renderSidebar(); refreshSearchCardStates();
+              toast("Couldn't link " + hit.title + ": " + (saveError?.message || saveError), "warn");
             }
 
-            try {
-              const found = await findVersionContainingFilename(hit.project_id, entry.filename);
-              if (found) {
-                const linkedEntry = installedMods.find(e => e.filename === entry.filename);
-                if (linkedEntry) {
-                  Object.assign(linkedEntry,{
-                    versionId:found.version.id, versionNumber:found.version.version_number,
-                    versionType:found.version.version_type, gameVersions:found.version.game_versions || [],
-                    matchedFilename:found.file.filename,
-                    dependencies:Array.isArray(found.version.dependencies) ? found.version.dependencies : []
-                  });
-                  upsertRegistry(linkedEntry);
-                  try { await saveServerModLink(linkedEntry); } catch (_) {}
-                }
-                renderSidebar();
-              }
-            } catch (_) {}
           }));
       };
         renderMatches(hits);
@@ -4224,7 +4217,7 @@
         body.querySelector("#advancedConfigText").addEventListener("input",e=>e.target.dataset.dirty="true"); renderServerState();
       },{wide:true});
     }catch(e){
-      openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><p class="muted">${escapeHtml(e.message)}</p><textarea id="configEditorText" spellcheck="false">${escapeHtml(textValue)}</textarea><div class="config-editor-bar"><button class="btn primary" id="configSaveFileBtn" data-server-mutation="true" type="button">Save changes</button></div></div>`; body.querySelector("#editorCloseBtn").addEventListener("click",closeModal); body.querySelector("#configSaveFileBtn").addEventListener("click",async()=>{try{await requireServerStopped("save a config file");}catch(e){toast(e.message,"warn");return;} const btn=body.querySelector("#configSaveFileBtn");btn.disabled=true;btn.textContent="Saving…";try{await writeCraftyTextFile(getConfig(),file.path,body.querySelector("#configEditorText").value,openedModifiedEpoch||file.modifiedEpoch||0);toast(file.name+" saved","ok");}catch(e){toast("Couldn't save "+file.name+": "+e.message,"error");}finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}}); renderServerState();},{wide:true});
+      openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><p class="muted">${escapeHtml(e.message)}</p><textarea id="configEditorText" spellcheck="false">${escapeHtml(textValue)}</textarea><div class="config-editor-bar"><button class="btn primary" id="configSaveFileBtn" data-server-mutation="true" type="button">Save changes</button></div></div>`; body.querySelector("#editorCloseBtn").addEventListener("click",closeModal); body.querySelector("#configSaveFileBtn").addEventListener("click",async()=>{const btn=body.querySelector("#configSaveFileBtn");btn.disabled=true;btn.textContent="Saving…";try{await withServerMutationLock("save " + file.name,async function(cfg){await writeCraftyTextFile(cfg,file.path,body.querySelector("#configEditorText").value,openedModifiedEpoch||file.modifiedEpoch||0,false);toast(file.name+" saved","ok");});}catch(e){toast("Couldn't save "+file.name+": "+e.message,"error");}finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}}); renderServerState();},{wide:true});
     }
   }
 
