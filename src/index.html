@@ -1455,11 +1455,7 @@
   function saveTlsPreference(value) {
     if (!els.allowInsecureTls) return;
     els.allowInsecureTls.checked = Boolean(value);
-    try {
-      const cfg = loadConfig() || {};
-      cfg.insecureTls = Boolean(value);
-      localStorage.setItem(LS_KEY, JSON.stringify(cfg));
-    } catch (_) {}
+    saveConfig({ insecureTls: Boolean(value) });
   }
 
   // ---------- Crafty request helper ----------
