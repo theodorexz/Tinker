@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +44,53 @@ fn validate_url(url: &str) -> Result<(), String> {
 fn parse_method(value: Option<String>) -> Result<Method, String> {
     let method = value.unwrap_or_else(|| "GET".to_string());
     Method::from_bytes(method.as_bytes()).map_err(|e| format!("Invalid HTTP method: {e}"))
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ConnectionConfig {
+    crafty_url: String,
+    server_id: String,
+    api_token: String,
+    mods_path: String,
+    insecure_tls: bool,
+}
+
+fn connection_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Could not resolve Tinker config folder: {e}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Could not create Tinker config folder: {e}"))?;
+    Ok(dir.join("connection.json"))
+}
+
+#[tauri::command]
+fn load_connection_config(app: AppHandle) -> Result<Option<ConnectionConfig>, String> {
+    let path = connection_config_path(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            let config = serde_json::from_str::<ConnectionConfig>(&raw)
+                .map_err(|e| format!("Could not read saved Crafty connection: {e}"))?;
+            Ok(Some(config))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("Could not read saved Crafty connection: {e}")),
+    }
+}
+
+#[tauri::command]
+fn save_connection_config(app: AppHandle, config: ConnectionConfig) -> Result<(), String> {
+    let path = connection_config_path(&app)?;
+    let raw = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Could not encode Crafty connection: {e}"))?;
+    let temp_path = path.with_extension("json.tmp");
+    std::fs::write(&temp_path, raw)
+        .map_err(|e| format!("Could not save Crafty connection: {e}"))?;
+    std::fs::rename(&temp_path, &path)
+        .map_err(|e| format!("Could not finalize saved Crafty connection: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -248,6 +295,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             crafty_request,
             ping,
+            load_connection_config,
+            save_connection_config,
             check_for_update,
             install_update,
             launch_nbt_explorer,
