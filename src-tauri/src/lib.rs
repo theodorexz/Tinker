@@ -166,6 +166,31 @@ fn likely_nbt_explorer_paths() -> Vec<PathBuf> {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = url;
+        return Err("External URL opening is currently implemented for Windows builds.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let safe = url.trim();
+        if !(safe.starts_with("https://") || safe.starts_with("http://")) {
+            return Err("Only http:// and https:// URLs can be opened.".to_string());
+        }
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", safe])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Could not open the web browser: {e}"))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
 async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<String>) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
@@ -220,7 +245,6 @@ async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             crafty_request,
             ping,
