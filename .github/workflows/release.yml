@@ -54,7 +54,6 @@ jobs:
             - Added a player-data menu that opens the actual server player-data file as a local NBT Explorer copy.
             - Fixed Modrinth descriptions, external links, and Minecraft-version filtering.
             - Fixed the Configuration wrench and app branding icons.
-            - Added a first-class dependency list in Explorer and Browse Mods.
             - Added the Tauri signed updater pipeline.
           releaseDraft: false
           prerelease: false
