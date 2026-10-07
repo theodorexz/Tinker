@@ -85,11 +85,8 @@ fn save_connection_config(app: AppHandle, config: ConnectionConfig) -> Result<()
     let path = connection_config_path(&app)?;
     let raw = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Could not encode Crafty connection: {e}"))?;
-    let temp_path = path.with_extension("json.tmp");
-    std::fs::write(&temp_path, raw)
+    std::fs::write(&path, raw)
         .map_err(|e| format!("Could not save Crafty connection: {e}"))?;
-    std::fs::rename(&temp_path, &path)
-        .map_err(|e| format!("Could not finalize saved Crafty connection: {e}"))?;
     Ok(())
 }
 
