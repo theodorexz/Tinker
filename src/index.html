@@ -3668,15 +3668,21 @@
     return project?.title || dep?.file_name || "Unknown dependency";
   }
 
+  function isRequiredServerDependency(dep) {
+    if (!dep || dep.dependency_type !== "required" || !dep.project_id) return false;
+    const pid = String(dep.project_id);
+    const project = dependencyProjectCache[pid] || modrinthProjectCache[pid];
+    return Boolean(project && isServerCompatibleModrinthProject(project));
+  }
+
   function buildDependencyRelationships() {
     const byProject = new Map(installedMods.filter(e => e.projectId).map(e => [String(e.projectId), e]));
     installedMods.forEach(e => { e.requiredBy = []; e.isDependency = false; });
     for (const entry of installedMods) {
-      const deps = Array.isArray(entry.dependencies) ? entry.dependencies : [];
+      const deps = (Array.isArray(entry.dependencies) ? entry.dependencies : []).filter(isRequiredServerDependency);
       for (const dep of deps) {
-        if (!dep || dep.dependency_type !== "required") continue;
-        const pid = dep.project_id ? String(dep.project_id) : "";
-        const depEntry = pid ? byProject.get(pid) : null;
+        const pid = String(dep.project_id);
+        const depEntry = byProject.get(pid) || null;
         if (depEntry) {
           depEntry.isDependency = true;
           depEntry.requiredBy.push(entry.projectId || entry.filename);
@@ -3686,7 +3692,7 @@
   }
 
   function getRequiredDependencies(entry) {
-    return (Array.isArray(entry.dependencies) ? entry.dependencies : []).filter(d => d && d.dependency_type === "required");
+    return (Array.isArray(entry.dependencies) ? entry.dependencies : []).filter(isRequiredServerDependency);
   }
 
   function getDependencyEntry(dep) {
