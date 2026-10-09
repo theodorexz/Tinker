@@ -576,6 +576,29 @@
   .explorer-mod-card .installed-title { font-size:1rem; }
   .explorer-actions-inline { display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; }
   .config-tab-panel { min-height:calc(100vh - 170px); }
+  .config-subtabs { display:flex; align-items:center; gap:.4rem; border-bottom:1px solid var(--border); margin:.1rem 0 1rem; padding:0 .15rem; }
+  .config-subtab { border:0; border-bottom:2px solid transparent; border-radius:6px 6px 0 0; background:transparent; color:var(--text-dim); font-weight:700; padding:.7rem 1rem; }
+  .config-subtab:hover { background:var(--panel); color:var(--text); }
+  .config-subtab.active { color:var(--brand-bright); border-bottom-color:var(--brand); background:var(--brand-wash); }
+  .config-view[hidden] { display:none !important; }
+  .server-settings-status { min-height:1.2rem; color:var(--text-faint); font-size:.78rem; margin:-.35rem 0 .75rem; }
+  .server-settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.85rem; align-items:start; }
+  .server-settings-card { min-width:0; border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); padding:1rem; }
+  .server-settings-card h2 { font-size:.95rem; margin:0 0 .25rem; }
+  .server-settings-card .card-help { color:var(--text-faint); font-size:.72rem; line-height:1.5; margin:.2rem 0 .8rem; }
+  .server-settings-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
+  .server-setting { min-width:0; }
+  .server-setting.wide { grid-column:1/-1; }
+  .server-setting label { display:block; font-size:.74rem; color:var(--text-dim); margin-bottom:.3rem; }
+  .server-setting input:not([type=checkbox]):not([type=file]), .server-setting select { width:100%; min-width:0; }
+  .server-setting .filters-row { margin:0; }
+  .server-setting .filters-row label { margin:0; }
+  .server-icon-row { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; margin:.65rem 0 .85rem; }
+  .server-icon-preview { width:64px; height:64px; border-radius:8px; border:1px solid var(--border); background:var(--bg-raised); display:flex; align-items:center; justify-content:center; overflow:hidden; color:var(--text-faint); font-size:.65rem; text-align:center; flex:none; }
+  .server-icon-preview img { width:64px; height:64px; object-fit:cover; image-rendering:pixelated; }
+  .server-settings-actions { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-top:1rem; padding-top:.85rem; border-top:1px solid var(--border-soft); }
+  .server-settings-wide { grid-column:1/-1; }
+  @media (max-width:850px) { .server-settings-grid { grid-template-columns:1fr; } .server-setting.wide { grid-column:auto; } .server-settings-wide { grid-column:auto; } .server-settings-fields { grid-template-columns:1fr; } }
   .config-layout { display:grid; grid-template-columns:280px minmax(0,1fr); gap:.9rem; min-height:560px; }
   .config-mod-pane, .config-files-pane { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); min-width:0; }
   .config-mod-pane { display:flex; flex-direction:column; overflow:hidden; }
@@ -839,6 +862,99 @@
         </div>
       </div>
 
+      <div class="config-subtabs" role="tablist" aria-label="Configuration sections">
+        <button class="config-subtab active" type="button" role="tab" aria-selected="true" data-config-view="server">Server</button>
+        <button class="config-subtab" type="button" role="tab" aria-selected="false" data-config-view="mods">Mods</button>
+      </div>
+
+      <section class="config-view active" id="configServerView" data-config-panel="server">
+        <div class="server-settings-status" id="serverSettingsStatus">Connect to Crafty to load server settings.</div>
+        <div class="server-settings-grid">
+          <section class="server-settings-card">
+            <h2>Server list appearance</h2>
+            <p class="card-help">These settings control the description and icon that appear in Minecraft's multiplayer server list. Restart the Minecraft server for icon changes to take effect.</p>
+            <div class="server-icon-row">
+              <div class="server-icon-preview" id="serverIconPreview">64 × 64 PNG</div>
+              <div class="server-setting" style="flex:1;min-width:180px;">
+                <label for="serverIconInput">Server icon</label>
+                <input id="serverIconInput" type="file" accept="image/png" style="width:100%;font-size:.75rem;">
+                <div class="card-help" style="margin:.35rem 0 0;">PNG image, exactly 64 × 64 pixels.</div>
+                <button class="btn small" id="serverIconUploadBtn" type="button" disabled style="margin-top:.55rem;">Upload server icon</button>
+                <span class="muted" id="serverIconStatus" style="font-size:.7rem;margin-left:.4rem;"></span>
+              </div>
+            </div>
+            <div class="server-setting">
+              <label for="serverMotd">Server description (MOTD)</label>
+              <input id="serverMotd" data-server-property="motd" type="text" maxlength="120" placeholder="A Minecraft Server">
+            </div>
+            <p class="card-help">MOTD supports Minecraft formatting codes. Use <code>\u00A7</code> codes if your server software supports them. The first line shown to players is their local server-list name, not this description.</p>
+          </section>
+
+          <section class="server-settings-card">
+            <h2>Players and access</h2>
+            <p class="card-help">These settings are saved to <code>server.properties</code>. Restart the server for Minecraft to apply them.</p>
+            <div class="server-settings-fields">
+              <div class="server-setting">
+                <label for="serverMaxPlayers">Maximum players</label>
+                <input id="serverMaxPlayers" data-server-property="max-players" data-server-type="number" type="number" min="1" max="10000" step="1">
+              </div>
+              <div class="server-setting">
+                <label for="serverPauseEmpty">Pause when empty (seconds)</label>
+                <input id="serverPauseEmpty" data-server-property="pause-when-empty-seconds" data-server-type="number" type="number" min="0" max="86400" step="1">
+              </div>
+              <div class="server-setting wide">
+                <label class="filters-row"><input type="checkbox" data-server-property="white-list" data-server-type="boolean" style="width:auto;"> Enable whitelist</label>
+              </div>
+              <div class="server-setting wide">
+                <label class="filters-row"><input type="checkbox" data-server-property="enforce-whitelist" data-server-type="boolean" style="width:auto;"> Enforce whitelist (kick players who aren't on it)</label>
+              </div>
+              <div class="server-setting wide">
+                <div class="muted" id="serverWhitelistSummary">Whitelist file not loaded.</div>
+                <button class="btn small" id="openWhitelistEditorBtn" type="button" style="margin-top:.45rem;">View / edit whitelist.json</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="server-settings-card server-settings-wide">
+            <h2>Gameplay and performance</h2>
+            <p class="card-help">Common Java server properties. Unsupported properties on older server software may be ignored by Minecraft. Don't change online-mode unless you understand the authentication implications.</p>
+            <div class="server-settings-fields">
+              <div class="server-setting">
+                <label for="serverDifficulty">Difficulty</label>
+                <select id="serverDifficulty" data-server-property="difficulty">
+                  <option value="peaceful">Peaceful</option><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option>
+                </select>
+              </div>
+              <div class="server-setting">
+                <label for="serverGamemode">Default gamemode</label>
+                <select id="serverGamemode" data-server-property="gamemode">
+                  <option value="survival">Survival</option><option value="creative">Creative</option><option value="adventure">Adventure</option><option value="spectator">Spectator</option>
+                </select>
+              </div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="pvp" data-server-type="boolean" style="width:auto;"> PvP</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="allow-flight" data-server-type="boolean" style="width:auto;"> Allow flight</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="allow-nether" data-server-type="boolean" style="width:auto;"> Allow Nether</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="spawn-monsters" data-server-type="boolean" style="width:auto;"> Spawn monsters</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="spawn-animals" data-server-type="boolean" style="width:auto;"> Spawn animals</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="enable-command-block" data-server-type="boolean" style="width:auto;"> Enable command blocks</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="online-mode" data-server-type="boolean" style="width:auto;"> Online authentication</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="force-gamemode" data-server-type="boolean" style="width:auto;"> Force default gamemode on join</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="enable-status" data-server-type="boolean" style="width:auto;"> Show status to server-list pings</label></div>
+              <div class="server-setting"><label class="filters-row"><input type="checkbox" data-server-property="hide-online-players" data-server-type="boolean" style="width:auto;"> Hide online player list in status</label></div>
+              <div class="server-setting"><label for="serverViewDistance">View distance</label><input id="serverViewDistance" data-server-property="view-distance" data-server-type="number" type="number" min="2" max="32" step="1"></div>
+              <div class="server-setting"><label for="serverSimulationDistance">Simulation distance</label><input id="serverSimulationDistance" data-server-property="simulation-distance" data-server-type="number" type="number" min="2" max="32" step="1"></div>
+              <div class="server-setting"><label for="serverSpawnProtection">Spawn protection</label><input id="serverSpawnProtection" data-server-property="spawn-protection" data-server-type="number" type="number" min="0" max="100000" step="1"></div>
+              <div class="server-setting"><label for="serverIdleTimeout">Idle kick timeout (minutes)</label><input id="serverIdleTimeout" data-server-property="player-idle-timeout" data-server-type="number" type="number" min="0" max="100000" step="1"></div>
+            </div>
+          </section>
+        </div>
+        <div class="server-settings-actions">
+          <button class="btn primary" id="serverSettingsSaveBtn" type="button">Save server settings</button>
+          <span class="muted" id="serverSettingsSaveStatus">Changes are saved to server.properties; a restart may be required.</span>
+        </div>
+      </section>
+
+      <section class="config-view" id="configModsView" data-config-panel="mods" hidden>
       <div class="config-layout">
         <aside class="config-mod-pane">
           <div class="config-pane-title">Mods</div>
@@ -862,6 +978,7 @@
           </div>
         </section>
       </div>
+      </section>
     </section>
   </main>
 </div>
