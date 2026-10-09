@@ -235,7 +235,7 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<String>) -> Result<(), String> {
+async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<String>) -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = path;
@@ -271,17 +271,37 @@ async fn launch_nbt_explorer(_app: AppHandle, path: String, data_base64: Option<
         std::fs::write(&local_path, data)
             .map_err(|e| format!("Could not write local player-data copy: {e}"))?;
 
+        let mut launch_error = None;
         for exe in likely_nbt_explorer_paths() {
-            if exe.is_file() {
-                std::process::Command::new(&exe)
-                    .arg(&local_path)
-                    .spawn()
-                    .map_err(|e| format!("Could not start NBT Explorer: {e}"))?;
-                return Ok(());
+            if !exe.is_file() {
+                continue;
             }
+
+            let mut child = match std::process::Command::new(&exe).arg(&local_path).spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    launch_error = Some(format!("Could not start NBT Explorer: {e}"));
+                    continue;
+                }
+            };
+
+            // Wait off the async runtime's worker threads. Once NBT Explorer closes,
+            // read its saved local file and return those bytes to the frontend to sync.
+            let file_for_read = local_path.clone();
+            let edited_bytes = tauri::async_runtime::spawn_blocking(move || {
+                let _ = child.wait().map_err(|e| format!("Could not wait for NBT Explorer: {e}"))?;
+                std::fs::read(&file_for_read)
+                    .map_err(|e| format!("Could not read edited player data after NBT Explorer closed: {e}"))
+            })
+            .await
+            .map_err(|e| format!("NBT Explorer sync task failed: {e}"))??;
+
+            return Ok(BASE64.encode(edited_bytes));
         }
 
-        Err("NBT Explorer was not found in the usual Windows install locations. Install NBT Explorer or choose another player-data editor.".to_string())
+        Err(launch_error.unwrap_or_else(|| {
+            "NBT Explorer was not found in the usual Windows install locations. Install NBT Explorer or choose another player-data editor.".to_string()
+        }))
     }
 }
 
