@@ -500,6 +500,8 @@
   .player-card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:.85rem; display:flex; align-items:center; gap:.7rem; }
   .player-avatar { width:48px; height:48px; border-radius:8px; background:var(--bg-raised); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--brand-bright); flex:none; overflow:hidden; image-rendering:pixelated; }
   .player-avatar img { width:100%; height:100%; object-fit:cover; image-rendering:pixelated; }
+  .player-head-fallback { display:flex; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; letter-spacing:.02em; }
+  .modal-head .player-avatar { width:56px; height:56px; }
   .player-card { cursor:pointer; } .player-card:hover { border-color:var(--brand-dim); background:var(--panel-2); }
   .player-main { min-width:0; flex:1; }
   .player-name { font-weight:700; font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -3723,13 +3725,78 @@
   // ---------- Players tab (work in progress) ----------
   let playersData=[];
 
+  const PLAYER_SKIN_CACHE_KEY = "tinkerPlayerSkinUuidCacheV1";
+
+  function playerAvatarMarkup(player) {
+    const name = String(player?.name || "");
+    const initials = /^Player /.test(name) ? "?" : (name.slice(0,2) || "?").toUpperCase();
+    return '<span class="player-avatar" data-player-avatar><span class="player-head-fallback">'+escapeHtml(initials)+'</span><img data-player-skin hidden alt="Minecraft player head"></span>';
+  }
+
+  function readPlayerSkinCache() {
+    try {
+      const value = JSON.parse(localStorage.getItem(PLAYER_SKIN_CACHE_KEY) || "{}");
+      return value && typeof value === "object" ? value : {};
+    } catch (_) { return {}; }
+  }
+
+  async function resolveOfficialPlayerSkinUuid(uuid) {
+    const key = String(uuid || "").replace(/-/g,"").toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(key)) return "";
+    const cache = readPlayerSkinCache();
+    if (Object.prototype.hasOwnProperty.call(cache,key)) return String(cache[key] || "");
+
+    const url = "https://sessionserver.mojang.com/session/minecraft/profile/" + encodeURIComponent(key);
+    const res = nativeBridgeAvailable()
+      ? await nativeHttpFetch(url,{method:"GET",headers:{"Accept":"application/json"}},false)
+      : await fetch(url,{method:"GET",headers:{"Accept":"application/json"},credentials:"omit"});
+    if (res.status === 204 || res.status === 404) {
+      cache[key] = "";
+      try { localStorage.setItem(PLAYER_SKIN_CACHE_KEY,JSON.stringify(cache)); } catch (_) {}
+      return "";
+    }
+    if (!res.ok) throw new Error("Mojang profile lookup returned HTTP " + res.status);
+
+    const profile = await res.json();
+    const id = String(profile.id || "").replace(/-/g,"").toLowerCase();
+    const textureProperty = (Array.isArray(profile.properties) ? profile.properties : []).find(p => p && p.name === "textures");
+    let hasSkin = false;
+    if (textureProperty && textureProperty.value) {
+      try {
+        const decoded = JSON.parse(atob(textureProperty.value));
+        hasSkin = Boolean(decoded?.textures?.SKIN?.url);
+      } catch (_) {}
+    }
+    const resolved = hasSkin && /^[0-9a-f]{32}$/.test(id) ? id : "";
+    cache[key] = resolved;
+    try { localStorage.setItem(PLAYER_SKIN_CACHE_KEY,JSON.stringify(cache)); } catch (_) {}
+    return resolved;
+  }
+
+  async function loadPlayerSkinIntoAvatar(container, player) {
+    if (!container) return;
+    const img = container.querySelector("[data-player-skin]");
+    const fallback = container.querySelector(".player-head-fallback");
+    if (!img || !fallback) return;
+    try {
+      const skinUuid = await resolveOfficialPlayerSkinUuid(player.uuid);
+      if (!skinUuid || !container.isConnected) return;
+      img.onload = function(){ img.hidden = false; fallback.hidden = true; };
+      img.onerror = function(){ img.hidden = true; fallback.hidden = false; };
+      img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(skinUuid) + "/64";
+    } catch (_) {
+      img.hidden = true;
+      fallback.hidden = false;
+    }
+  }
+
   async function openPlayerDataMenu(player){
     openModal(function(body){
-      const avatar="https://crafatar.com/avatars/"+encodeURIComponent(player.uuid)+"?size=64&overlay";
-      body.innerHTML="<div class=\"modal-head\"><img class=\"player-avatar\" src=\""+avatar+"\" alt=\"\"><div><h3>"+escapeHtml(player.name)+"</h3><div class=\"modal-sub\">"+escapeHtml(player.uuid)+"</div></div></div>"+
+      body.innerHTML="<div class=\"modal-head\">"+playerAvatarMarkup(player)+"<div><h3>"+escapeHtml(player.name)+"</h3><div class=\"modal-sub\">"+escapeHtml(player.uuid)+"</div></div></div>"+
         "<div class=\"structured-section\"><div class=\"setting-row\"><div><div class=\"setting-name\">Player-data file</div><div class=\"setting-path\">"+escapeHtml(player.dataPath)+"</div></div><div class=\"setting-control\"><span class=\"muted\">Crafty server</span></div></div>"+
         "<p class=\"muted\" style=\"margin:.65rem 0 0;\">Tinker downloads a temporary local copy of this exact player-data file for NBT Explorer. Changes are not synced back to Crafty yet.</p></div>"+
         "<div class=\"structured-savebar\" style=\"margin-top:.75rem;\"><button class=\"btn primary\" id=\"openPlayerNbtBtn\" type=\"button\">Open in NBT Explorer</button><button class=\"btn ghost\" id=\"closePlayerMenuBtn\" type=\"button\">Close</button></div>";
+      loadPlayerSkinIntoAvatar(body.querySelector("[data-player-avatar]"),player);
       body.querySelector("#closePlayerMenuBtn").addEventListener("click",closeModal);
       body.querySelector("#openPlayerNbtBtn").addEventListener("click",async function(){
         const btn=body.querySelector("#openPlayerNbtBtn");
@@ -3811,10 +3878,11 @@
     const list=playersData.filter(function(p){return p.name.toLowerCase().includes(q)||p.uuid.includes(q);});
     if(!list.length){el.innerHTML="<div class=\"empty-state small\">No players match this search.</div>";return;}
     el.innerHTML=list.map(function(p){
-      const avatar="https://crafatar.com/avatars/"+encodeURIComponent(p.uuid)+"?size=64&overlay";
-      return "<div class=\"player-card\" data-player-uuid=\""+escapeHtml(p.uuid)+"\"><div class=\"player-avatar\"><img src=\""+avatar+"\" alt=\"Player head\" loading=\"lazy\"></div><div class=\"player-main\"><div class=\"player-name\">"+escapeHtml(p.name)+"</div><div class=\"player-sub\">"+escapeHtml(p.uuid)+" · player-data</div></div><div class=\"player-actions\"><button class=\"btn primary small nbt-player-btn\" type=\"button\">Player data</button></div></div>";
+      return "<div class=\"player-card\" data-player-uuid=\""+escapeHtml(p.uuid)+"\">"+playerAvatarMarkup(p)+"<div class=\"player-main\"><div class=\"player-name\">"+escapeHtml(p.name)+"</div><div class=\"player-sub\">"+escapeHtml(p.uuid)+" · player-data</div></div><div class=\"player-actions\"><button class=\"btn primary small nbt-player-btn\" type=\"button\">Player data</button></div></div>";
     }).join("");
     el.querySelectorAll(".player-card").forEach(function(card){
+      const playerForSkin=playersData.find(function(p){return p.uuid===card.dataset.playerUuid;});
+      if(playerForSkin) loadPlayerSkinIntoAvatar(card.querySelector("[data-player-avatar]"),playerForSkin);
       card.addEventListener("click",function(){
         const player=playersData.find(function(p){return p.uuid===card.dataset.playerUuid;});
         if(player) openPlayerDataMenu(player);
