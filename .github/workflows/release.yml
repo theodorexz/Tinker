@@ -88,6 +88,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           retryAttempts: 3
-          uploadUpdaterJson: true
+          # The app updater currently targets Windows; don't let parallel macOS/Linux jobs overwrite latest.json.
+          uploadUpdaterJson: ${{ matrix.name == 'Windows' }}
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
