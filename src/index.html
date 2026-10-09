@@ -5352,6 +5352,147 @@
     });
   }
 
+  const SERVER_SUPPORTED_ENVIRONMENTS = new Set([
+    "server_only",
+    "server_only_client_optional",
+    "dedicated_server_only",
+    "client_and_server"
+  ]);
+
+  function isServerCompatibleModrinthProject(project) {
+    if (!project || typeof project !== "object") return false;
+    const environment = project.environment;
+    if (Array.isArray(environment) && environment.length) {
+      return environment.some(value => SERVER_SUPPORTED_ENVIRONMENTS.has(String(value).toLowerCase()));
+    }
+    if (typeof environment === "string" && environment) {
+      return SERVER_SUPPORTED_ENVIRONMENTS.has(environment.toLowerCase());
+    }
+    // Backwards compatibility for the legacy Modrinth API fields.
+    const serverSide = String(project.server_side || "").toLowerCase();
+    return serverSide === "required" || serverSide === "optional";
+  }
+
+  function isServerCompatibleModrinthVersion(version, project) {
+    if (!version || typeof version !== "object") return isServerCompatibleModrinthProject(project);
+    const environment = version.environment;
+    if (typeof environment === "string" && environment) {
+      return SERVER_SUPPORTED_ENVIRONMENTS.has(environment.toLowerCase());
+    }
+    if (Array.isArray(environment) && environment.length) {
+      return environment.some(value => SERVER_SUPPORTED_ENVIRONMENTS.has(String(value).toLowerCase()));
+    }
+    return isServerCompatibleModrinthProject(project);
+  }
+
+  async function getModrinthProjectForDependency(projectId) {
+    const id = String(projectId || "").trim();
+    if (!id) return null;
+    const cached = modrinthProjectCache[id];
+    if (cached && typeof cached === "object") return cached;
+    const res = await modrinthFetch("https://api.modrinth.com/v2/project/" + encodeURIComponent(id));
+    if (!res.ok) throw new Error("Project lookup failed (HTTP " + res.status + ")");
+    const project = await res.json();
+    if (!project || project.project_type !== "mod") return null;
+    modrinthProjectCache[id] = project;
+    if (project.slug) modrinthProjectCache[String(project.slug).toLowerCase()] = project;
+    return project;
+  }
+
+  function isVersionForCurrentServer(version) {
+    if (!version) return false;
+    if (env.loader && (!Array.isArray(version.loaders) || !version.loaders.includes(env.loader))) return false;
+    if (env.mcVersion && (!Array.isArray(version.game_versions) || !version.game_versions.includes(env.mcVersion))) return false;
+    return true;
+  }
+
+  function chooseModrinthJarFile(version) {
+    const files = Array.isArray(version && version.files) ? version.files : [];
+    return files.find(file => file.primary && /\\.jar$/i.test(file.filename || ""))
+      || files.find(file => /\\.jar$/i.test(file.filename || ""))
+      || files.find(file => file.primary)
+      || files[0]
+      || null;
+  }
+
+  async function findServerCompatibleDependencyVersion(projectId, project, pinnedVersionId) {
+    if (pinnedVersionId) {
+      try {
+        const pinnedResponse = await modrinthFetch("https://api.modrinth.com/v2/version/" + encodeURIComponent(pinnedVersionId));
+        if (pinnedResponse.ok) {
+          const pinned = await pinnedResponse.json();
+          const pinnedFile = chooseModrinthJarFile(pinned);
+          if (isVersionForCurrentServer(pinned) && isServerCompatibleModrinthVersion(pinned, project) && pinnedFile && pinnedFile.url) {
+            return {version:pinned,file:pinnedFile};
+          }
+        }
+      } catch (_) {}
+    }
+
+    const params = new URLSearchParams();
+    if (env.loader) params.set("loaders", JSON.stringify([env.loader]));
+    if (env.mcVersion) params.set("game_versions", JSON.stringify([env.mcVersion]));
+    params.set("include_changelog", "false");
+    const res = await modrinthFetch("https://api.modrinth.com/v2/project/" + encodeURIComponent(projectId) + "/version?" + params.toString());
+    if (!res.ok) throw new Error("Version lookup failed (HTTP " + res.status + ")");
+    const versions = await res.json();
+    const compatible = versions.filter(version =>
+      isVersionForCurrentServer(version) &&
+      isServerCompatibleModrinthVersion(version, project) &&
+      Boolean(chooseModrinthJarFile(version) && chooseModrinthJarFile(version).url)
+    );
+    const rank = {release:3,beta:2,alpha:1};
+    compatible.sort((a,b) =>
+      (rank[b.version_type] || 0) - (rank[a.version_type] || 0) ||
+      String(b.date_published || "").localeCompare(String(a.date_published || ""))
+    );
+    if (!compatible.length) return null;
+    return {version:compatible[0],file:chooseModrinthJarFile(compatible[0])};
+  }
+
+  async function buildRequiredServerDependencyPlan(rootProjectId, rootVersion) {
+    const plan = [];
+    const skipped = [];
+    const visited = new Set([String(rootProjectId)]);
+    const maxDepth = 8;
+
+    async function visit(version, depth) {
+      if (depth >= maxDepth) return;
+      const dependencies = (Array.isArray(version && version.dependencies) ? version.dependencies : [])
+        .filter(dependency => dependency && dependency.dependency_type === "required" && dependency.project_id);
+      for (const dependency of dependencies) {
+        const id = String(dependency.project_id);
+        if (!id || visited.has(id)) continue;
+        visited.add(id);
+        let project = null;
+        try {
+          project = await getModrinthProjectForDependency(id);
+        } catch (_) {
+          skipped.push({id,title:dependency.file_name || id,reason:"could not verify server compatibility"});
+          continue;
+        }
+        if (!project || !isServerCompatibleModrinthProject(project)) {
+          // This excludes client-only projects such as Sodium in a client's dependency list.
+          continue;
+        }
+        if (getInstalledEntry(id)) continue;
+        let selected = null;
+        try {
+          selected = await findServerCompatibleDependencyVersion(id, project, dependency.version_id || "");
+        } catch (_) {}
+        if (!selected) {
+          skipped.push({id,title:project.title || dependency.file_name || id,reason:"no compatible server version"});
+          continue;
+        }
+        await visit(selected.version, depth + 1);
+        plan.push({projectId:id,project,version:selected.version,file:selected.file});
+      }
+    }
+
+    await visit(rootVersion, 0);
+    return {plan, skipped};
+  }
+
   const browseDependencyCache=Object.create(null);
   const browseDependencyPromises=Object.create(null);
   async function loadBrowseDependenciesForCard(hit,card){
