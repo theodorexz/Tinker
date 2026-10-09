@@ -4609,27 +4609,55 @@
       });
 
       const iconPreview = document.getElementById("serverIconPreview");
+      const iconButton = document.getElementById("serverIconUploadBtn");
+      const iconStatus = document.getElementById("serverIconStatus");
       if (iconPreview) {
+        let rootListingSucceeded = false;
+        let foundIcon = null;
         try {
-          let iconPath = "server-icon.png";
-          try {
-            const rootItems = await listCraftyDirectory(cfg, ".", null);
-            const foundIcon = rootItems.find(item => !item.isDirectory && String(item.name || "").toLowerCase() === "server-icon.png");
-            if (foundIcon) iconPath = String(foundIcon.path || foundIcon.name || iconPath);
-          } catch (_) {}
-          const buffer = await downloadCraftyRawFileBuffer(cfg, iconPath);
-          const bytes = new Uint8Array(buffer);
-          const isPng = bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
-          if (!isPng) throw new Error("server-icon.png is not a PNG");
-          iconPreview.innerHTML = '<img alt="Current server icon" src="data:image/png;base64,' + base64FromArrayBuffer(buffer) + '">';
-          serverIconExists = true;
-          const iconButton = document.getElementById("serverIconUploadBtn");
-          if (iconButton) iconButton.textContent = "Update server icon";
-        } catch (_) {
+          const rootItems = await listCraftyDirectory(cfg, ".", null);
+          rootListingSucceeded = true;
+          foundIcon = rootItems.find(item => !item.isDirectory && String(item.name || "").toLowerCase() === "server-icon.png") || null;
+        } catch (_) {}
+
+        if (rootListingSucceeded && !foundIcon) {
           serverIconExists = false;
           iconPreview.textContent = "No icon";
-          const iconButton = document.getElementById("serverIconUploadBtn");
           if (iconButton) iconButton.textContent = "Add server icon";
+          if (iconStatus) iconStatus.textContent = "No server-icon.png found in the server root.";
+        } else {
+          // When the file listing confirms the icon exists, the label must stay
+          // "Update" even if this Crafty version has trouble serving the preview bytes.
+          if (foundIcon) {
+            serverIconExists = true;
+            if (iconButton) iconButton.textContent = "Update server icon";
+          }
+          try {
+            const iconPath = foundIcon ? String(foundIcon.path || foundIcon.name || "server-icon.png") : "server-icon.png";
+            const buffer = await downloadCraftyRawFileBuffer(cfg, iconPath);
+            const bytes = new Uint8Array(buffer);
+            const isPng = bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+            if (!isPng) throw new Error("Crafty returned data that is not a PNG.");
+            iconPreview.innerHTML = '<img alt="Current server icon" src="data:image/png;base64,' + base64FromArrayBuffer(buffer) + '">';
+            serverIconExists = true;
+            if (iconButton) iconButton.textContent = "Update server icon";
+            if (iconStatus) iconStatus.textContent = "";
+          } catch (iconError) {
+            if (rootListingSucceeded && foundIcon) {
+              serverIconExists = true;
+              iconPreview.textContent = "Icon exists; preview unavailable";
+              if (iconButton) iconButton.textContent = "Update server icon";
+              if (iconStatus) iconStatus.textContent = "Crafty lists server-icon.png, but its download route failed: " + (iconError?.message || iconError);
+            } else if (!rootListingSucceeded) {
+              iconPreview.textContent = "Couldn't check icon";
+              if (iconButton) iconButton.textContent = serverIconExists ? "Update server icon" : "Check server icon";
+              if (iconStatus) iconStatus.textContent = "Could not verify whether server-icon.png exists: " + (iconError?.message || iconError);
+            } else {
+              serverIconExists = false;
+              iconPreview.textContent = "No icon";
+              if (iconButton) iconButton.textContent = "Add server icon";
+            }
+          }
         }
       }
 
