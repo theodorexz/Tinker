@@ -4255,6 +4255,13 @@
     const lock = activeMutationLock;
     if (!lock) return;
     try {
+      const current = await readMutationLock(lock.cfg);
+      if (!current || current.clientId !== lock.clientId || current.leaseId !== lock.leaseId) {
+        activeMutationLock = null;
+        if (mutationLockHeartbeat) clearInterval(mutationLockHeartbeat);
+        mutationLockHeartbeat = null;
+        return;
+      }
       await writeMutationLockState(lock, new Date(Date.now() + 30000).toISOString());
     } catch (_) {}
   }
