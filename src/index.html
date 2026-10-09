@@ -3965,51 +3965,104 @@
 
 
   async function downloadPlayerDataBuffer(cfg, player) {
+    const normalized = String(player.dataPath || "").replace(/\\/g,"/").replace(/^\/+/,"");
+    const slash = normalized.lastIndexOf("/");
+    if (slash < 0) return await downloadCraftyRawFileBuffer(cfg, normalized);
+
+    const parent = normalized.slice(0, slash);
+    const filename = normalized.slice(slash + 1).toLowerCase();
+    let archiveError = null;
+
+    // On this Crafty version, nested-file download URLs route incorrectly. Download
+    // the parent directory ZIP first and extract the exact .dat entry locally.
     try {
-      return await downloadCraftyRawFileBuffer(cfg, player.dataPath);
-    } catch (directError) {
-      const normalized = String(player.dataPath || "").replace(/\\/g,"/").replace(/^\/+/,"");
-      const slash = normalized.lastIndexOf("/");
-      if (slash < 0) throw directError;
-      const parent = normalized.slice(0, slash);
-      const filename = normalized.slice(slash + 1).toLowerCase();
-      try {
-        const archiveBuffer = await downloadCraftyDirectoryArchive(cfg, parent);
-        const entries = listZipEntries(archiveBuffer);
-        const match = entries.find(item => {
-          const itemPath = String(item.name || "").replace(/\\/g,"/").replace(/^\/+/,"").toLowerCase();
-          return !itemPath.endsWith("/") && (itemPath === filename || itemPath.endsWith("/" + filename));
-        });
-        if (!match) throw new Error("The player-data folder archive did not contain " + filename);
-        const bytes = await extractZipEntry(archiveBuffer, match);
-        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-      } catch (archiveError) {
-        throw new Error("Crafty couldn't download this player-data file directly (" +
-          (directError?.message || directError) + ") or via its folder archive (" +
-          (archiveError?.message || archiveError) + ").");
-      }
+      const archiveBuffer = await downloadCraftyDirectoryArchive(cfg, parent);
+      const entries = listZipEntries(archiveBuffer);
+      const match = entries.find(item => {
+        const itemPath = String(item.name || "").replace(/\\/g,"/").replace(/^\/+/,"").toLowerCase();
+        return !itemPath.endsWith("/") &&
+          (itemPath === filename || itemPath.endsWith("/" + filename));
+      });
+      if (!match) throw new Error("The " + parent + " archive did not contain " + filename);
+      const bytes = await extractZipEntry(archiveBuffer, match);
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    } catch (e) {
+      archiveError = e;
     }
+
+    try {
+      return await downloadCraftyRawFileBuffer(cfg, normalized);
+    } catch (directError) {
+      throw new Error(
+        "Couldn't download " + normalized + ". Folder archive: " +
+        (archiveError?.message || archiveError) + ". Direct file request: " +
+        (directError?.message || directError)
+      );
+    }
+  }
+
+  function playerBuffersEqual(a, b) {
+    const x = new Uint8Array(a), y = new Uint8Array(b);
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
   }
 
   async function openPlayerDataMenu(player){
     openModal(function(body){
       body.innerHTML="<div class=\"modal-head\">"+playerAvatarMarkup(player)+"<div><h3>"+escapeHtml(player.name)+"</h3><div class=\"modal-sub\">"+escapeHtml(player.uuid)+"</div></div></div>"+
         "<div class=\"structured-section\"><div class=\"setting-row\"><div><div class=\"setting-name\">Player-data file</div><div class=\"setting-path\">"+escapeHtml(player.dataPath)+"</div></div><div class=\"setting-control\"><span class=\"muted\">Crafty server</span></div></div>"+
-        "<p class=\"muted\" style=\"margin:.65rem 0 0;\">Tinker downloads a temporary local copy of this exact player-data file for NBT Explorer. Changes are not synced back to Crafty yet.</p></div>"+
-        "<div class=\"structured-savebar\" style=\"margin-top:.75rem;\"><button class=\"btn primary\" id=\"openPlayerNbtBtn\" type=\"button\">Open in NBT Explorer</button><button class=\"btn ghost\" id=\"closePlayerMenuBtn\" type=\"button\">Close</button></div>";
+        "<p class=\"muted\" style=\"margin:.65rem 0 0;\">NBT Explorer opens a local copy. Save your edits and close NBT Explorer; Tinker will then upload the edited file back to Crafty automatically. For safety, the Minecraft server must be stopped before syncing.</p></div>"+
+        "<div class=\"structured-savebar\" style=\"margin-top:.75rem;\"><button class=\"btn primary\" id=\"openPlayerNbtBtn\" type=\"button\">Edit player data &amp; sync on close</button><button class=\"btn ghost\" id=\"closePlayerMenuBtn\" type=\"button\">Close</button></div>"+
+        "<div class=\"muted\" id=\"playerSyncStatus\" style=\"font-size:.75rem;margin-top:.5rem;\">The file is synced only after NBT Explorer closes.</div>";
       loadPlayerSkinIntoAvatar(body.querySelector("[data-player-avatar]"),player);
       body.querySelector("#closePlayerMenuBtn").addEventListener("click",closeModal);
       body.querySelector("#openPlayerNbtBtn").addEventListener("click",async function(){
         const btn=body.querySelector("#openPlayerNbtBtn");
-        btn.disabled=true; btn.textContent="Downloading player data…";
+        const status=body.querySelector("#playerSyncStatus");
+        const originalLabel=btn.textContent;
+        btn.disabled=true;
+        btn.textContent="Opening NBT Explorer…";
+        if(status) status.textContent="Save your changes and close NBT Explorer. Tinker will sync the file after it closes.";
         try{
-          const buffer=await downloadPlayerDataBuffer(getConfig(),player);
-          await window.__TAURI__.core.invoke("launch_nbt_explorer",{path:player.dataPath,dataBase64:base64FromArrayBuffer(buffer)});
-          btn.textContent="Opened in NBT Explorer";
-          toast("Opened a local copy of "+player.dataPath,"ok");
+          const cfg=getConfig();
+          await requireServerStopped("edit player data");
+          const originalBuffer=await downloadPlayerDataBuffer(cfg,player);
+          btn.textContent="NBT Explorer open — close it to sync…";
+
+          const editedBase64=await window.__TAURI__.core.invoke("launch_nbt_explorer",{
+            path:player.dataPath,
+            dataBase64:base64FromArrayBuffer(originalBuffer)
+          });
+
+          btn.textContent="Syncing to Crafty…";
+          if(status) status.textContent="NBT Explorer closed. Checking the edited file and uploading changes…";
+          const editedBuffer=arrayBufferFromBase64(editedBase64);
+          if(playerBuffersEqual(originalBuffer,editedBuffer)){
+            btn.textContent="No changes to sync";
+            if(status) status.textContent="NBT Explorer closed; the player-data file was unchanged.";
+            toast("No player-data changes were detected.", "ok");
+            return;
+          }
+
+          const normalized=String(player.dataPath || "").replace(/\\/g,"/").replace(/^\/+/,"");
+          const slash=normalized.lastIndexOf("/");
+          const parent=slash>=0?normalized.slice(0,slash):".";
+          const filename=slash>=0?normalized.slice(slash+1):normalized;
+          await withServerMutationLock("sync player data for "+player.name,async function(lockCfg){
+            await uploadBufferToServer(lockCfg,parent,filename,editedBuffer);
+          });
+
+          btn.textContent="Synced to Crafty";
+          if(status) status.textContent="Player data synced successfully. The edited file is now on the Crafty server.";
+          toast("Synced "+player.dataPath+" back to Crafty.", "ok");
         }catch(e){
-          btn.disabled=false; btn.textContent="Open in NBT Explorer";
-          toast("Couldn’t open player data: "+(e&&e.message?e.message:e),"error");
+          btn.disabled=false;
+          btn.textContent=originalLabel;
+          if(status) status.textContent="Sync failed: "+(e?.message||e);
+          toast("Couldn’t sync player data: "+(e?.message||e),"error");
+        }finally{
+          renderServerState();
         }
       });
     },{wide:true});
