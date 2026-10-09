@@ -3201,6 +3201,7 @@
       // Prefer a small image stored inside the JAR. This is local work and does not touch Modrinth.
       // Icon extraction is completely local. Include manually linked entries too so a
       // different computer can rebuild the JAR preview from the current server copy.
+      const localIconWarnings = [];
       const iconEntries = installedMods.filter(e => e._scanBuffer);
       for (let i = 0; i < iconEntries.length; i += 8) {
         const slice = iconEntries.slice(i, i + 8);
@@ -3213,13 +3214,13 @@
               entry.iconSource = "local";
             } else if (entry.projectId && entry.iconUrl && !iconFallbackNotified.has(entry.filename)) {
               iconFallbackNotified.add(entry.filename);
-              toast("Could not retrieve local icon for " + (entry.title || entry.filename) + ", requesting from Modrinth site", "warn");
+              localIconWarnings.push(entry.title || entry.filename);
               entry.iconSource = "modrinth";
             }
           } catch (e) {
             if (entry.projectId && entry.iconUrl && !iconFallbackNotified.has(entry.filename)) {
               iconFallbackNotified.add(entry.filename);
-              toast("Could not retrieve local icon for " + (entry.title || entry.filename) + ", requesting from Modrinth site", "warn");
+              localIconWarnings.push(entry.title || entry.filename);
             }
           }
         }));
@@ -3229,11 +3230,18 @@
       for (const entry of installedMods) {
         if (entry._metadataCacheHit && !entry.localIconDataUrl && entry.projectId && entry.iconUrl && !iconFallbackNotified.has(entry.filename)) {
           iconFallbackNotified.add(entry.filename);
-          toast("Could not retrieve local icon for " + (entry.title || entry.filename) + ", requesting from Modrinth site", "warn");
+          localIconWarnings.push(entry.title || entry.filename);
           entry.iconSource = "modrinth";
         }
         delete entry._metadataCacheHit;
         delete entry._serverLinkMatch;
+      }
+
+      if (localIconWarnings.length) {
+        const distinctIconWarnings = Array.from(new Set(localIconWarnings));
+        const examples = distinctIconWarnings.slice(0, 3).join(", ");
+        const more = distinctIconWarnings.length > 3 ? " and " + (distinctIconWarnings.length - 3) + " more" : "";
+        toast("Could not load local icons for " + distinctIconWarnings.length + " mod(s); using Modrinth icons where available. " + examples + more, "warn");
       }
 
       buildDependencyRelationships();
