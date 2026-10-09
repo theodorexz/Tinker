@@ -651,6 +651,34 @@
   .config-file-path { font-size:.63rem; color:var(--text-faint); font-family:var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .config-file-meta { color:var(--text-faint); font-size:.64rem; white-space:nowrap; }
   .config-editor { display:flex; flex-direction:column; gap:.65rem; }
+  .jsonhero-editor { display:flex; flex-direction:column; gap:.7rem; min-width:0; }
+  .jsonhero-head { padding-right:1.5rem; }
+  .jsonhero-title { font-size:1rem; font-weight:750; }
+  .jsonhero-path { margin-top:.2rem; color:var(--text-faint); font: .68rem var(--mono); overflow-wrap:anywhere; }
+  .jsonhero-subtitle { font-size:.72rem; line-height:1.45; color:var(--text-faint); margin-top:.45rem; }
+  .jsonhero-tabs { display:flex; gap:.35rem; align-items:center; border-bottom:1px solid var(--border); padding-bottom:.45rem; }
+  .jsonhero-tab { border:1px solid var(--border); background:var(--bg-raised); color:var(--text-dim); padding:.4rem .7rem; border-radius:7px; font-size:.76rem; font-weight:650; }
+  .jsonhero-tab.active { border-color:var(--brand-dim); background:var(--brand-wash); color:var(--brand-bright); }
+  .jsonhero-search { width:100%; }
+  .jsonhero-tree { border:1px solid var(--border); border-radius:9px; background:var(--bg-raised); padding:.5rem; max-height:54vh; min-height:260px; overflow:auto; font-size:.78rem; }
+  .jh-node { min-width:0; }
+  .jh-node[hidden] { display:none !important; }
+  .jh-branch { padding-left:.6rem; border-left:1px solid var(--border-soft); margin-left:.35rem; }
+  .jh-branch > summary { cursor:pointer; display:flex; align-items:center; gap:.5rem; min-height:32px; padding:.3rem .4rem; border-radius:5px; list-style-position:outside; overflow-wrap:anywhere; }
+  .jh-branch > summary:hover { background:var(--panel-2); }
+  .jh-key { font-weight:700; color:var(--text); overflow-wrap:anywhere; }
+  .jh-type { font: .64rem var(--mono); color:var(--text-faint); background:var(--panel); border:1px solid var(--border-soft); border-radius:5px; padding:.12rem .3rem; flex:none; }
+  .jh-count { color:var(--text-faint); font-size:.66rem; margin-left:auto; flex:none; }
+  .jh-children { margin-left:.55rem; }
+  .jh-leaf { display:grid; grid-template-columns:minmax(110px,.8fr) minmax(120px,1.2fr); align-items:center; gap:.4rem; padding:.3rem .35rem .3rem .6rem; border-left:1px solid var(--border-soft); margin-left:.35rem; }
+  .jh-leaf:nth-child(even) { background:rgba(255,255,255,.018); }
+  .jh-leaf-heading { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; min-width:0; }
+  .jh-leaf input:not([type=checkbox]) { width:100%; min-width:0; font: .74rem var(--mono); }
+  .jh-leaf input[type=checkbox] { justify-self:start; accent-color:var(--brand); width:17px; height:17px; }
+  .jh-json-code { width:100%; min-height:54vh; resize:vertical; background:#0a0c0e; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.8rem; font:.76rem/1.6 var(--mono); tab-size:2; white-space:pre; }
+  .jsonhero-footer { display:flex; align-items:center; flex-wrap:wrap; gap:.6rem; padding-top:.65rem; border-top:1px solid var(--border-soft); }
+  .jsonhero-status { color:var(--text-faint); font-size:.7rem; flex:1; min-width:160px; }
+  @media (max-width:620px) { .jh-leaf { grid-template-columns:minmax(0,1fr); } .jsonhero-tree { max-height:48vh; } }
   .config-editor-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
   .config-editor-title { font-weight:700; font-size:.95rem; }
   .config-editor-path { font-family:var(--mono); color:var(--text-faint); font-size:.66rem; margin-top:.18rem; }
@@ -4707,37 +4735,259 @@
   }
   function tomlValue(v){if(typeof v==="boolean"||typeof v==="number")return String(v);if(Array.isArray(v))return "["+v.map(tomlValue).join(", ")+"]";return JSON.stringify(String(v??""));}
 
-  async function openConfigEditor(file) {
-    if(!file) return;
-    try{await requireServerStopped("edit a config file");}catch(e){toast(e.message,"warn");return;}
-    openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="modal-loading">Loading ${escapeHtml(file.name)}…</div></div>`;},{wide:true});
-    let textValue="", openedModifiedEpoch=0;
-    try{
-      if(!isLikelyTextConfig(file)) throw new Error("This file type is not treated as an editable configuration yet.");
-      const result=await readCraftyTextFile(getConfig(),file.path); textValue=result.content; openedModifiedEpoch=Number(result.attributes?.modified_epoch||0);
-      const parsed=parseStructuredConfig(file,textValue);
-      if(!parsed||!parsed.data||typeof parsed.data!=="object"||Array.isArray(parsed.data)) throw new Error("This configuration could not be represented safely in structured mode.");
-      const entries=flattenSettings(parsed.data);
-      openModal(body=>{
-        body.innerHTML=`<div class="structured-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><div class="muted">Structured mode · ${escapeHtml(parsed.format.toUpperCase())} · ${entries.length} setting${entries.length===1?'':'s'}</div><div class="structured-section"><div class="structured-grid">${renderStructuredRows(entries)}</div></div><details class="advanced-editor"><summary>Advanced: edit raw file text</summary><textarea id="advancedConfigText" class="advanced-text" spellcheck="false"></textarea></details><div class="structured-savebar"><button class="btn primary" id="configStructuredSaveBtn" data-server-mutation="true" type="button">Save changes</button><span class="editor-save-state" id="configStructuredState">Loaded</span></div></div>`;
-        body.querySelector("#advancedConfigText").value=textValue;
-        body.querySelector("#editorCloseBtn").addEventListener("click",closeModal);
-        body.querySelectorAll("input[type=range]").forEach(r=>{const n=r.parentElement.querySelector("input[type=number]"); r.addEventListener("input",()=>n.value=r.value); n.addEventListener("input",()=>r.value=n.value);});
-        body.querySelector("#configStructuredSaveBtn").addEventListener("click",async()=>{
-          try{await requireServerStopped("save a config file");}catch(e){toast(e.message,"warn");return;}
-          const btn=body.querySelector("#configStructuredSaveBtn"),state=body.querySelector("#configStructuredState"); btn.disabled=true; btn.textContent="Saving…";
-          try{const advanced=body.querySelector("#advancedConfigText"); let output;
-            if(advanced.dataset.dirty==="true") output=advanced.value;
-            else {const next=JSON.parse(JSON.stringify(parsed.data)); body.querySelectorAll("[data-setting-idx]").forEach(c=>{if(c.type==='range')return; const idx=Number(c.dataset.settingIdx); if(c.dataset._skip)return;}); for(let i=0;i<entries.length;i++){const controls=body.querySelectorAll(`[data-setting-idx="${i}"]`); const c=Array.from(controls).find(x=>x.type!=="range"); if(c) setPathValue(next,entries[i].path,structuredValue(c,entries[i].value));} output=serializeStructured(parsed,next);}
-            await withServerMutationLock("save " + file.name, async function(cfg){const current=await readCraftyTextFile(cfg,file.path);const currentEpoch=Number(current.attributes?.modified_epoch||0);if(openedModifiedEpoch&&currentEpoch&&openedModifiedEpoch!==currentEpoch)throw new Error("This file changed after you opened it. Close it, refresh, and reopen before saving.");await writeCraftyTextFile(cfg,file.path,output,currentEpoch,false);}); state.textContent="Saved just now"; toast(file.name+" saved","ok");
-          }catch(e){state.textContent="Save failed";toast("Couldn't save "+file.name+": "+e.message,"error");}
-          finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}
-        });
-        body.querySelector("#advancedConfigText").addEventListener("input",e=>e.target.dataset.dirty="true"); renderServerState();
-      },{wide:true});
-    }catch(e){
-      openModal(body=>{body.innerHTML=`<div class="config-editor"><div class="config-editor-head"><div><div class="config-editor-title">${escapeHtml(file.name)}</div><div class="config-editor-path">${escapeHtml(file.path)}</div></div><button class="btn ghost small" id="editorCloseBtn" type="button">Close</button></div><p class="muted">${escapeHtml(e.message)}</p><textarea id="configEditorText" spellcheck="false">${escapeHtml(textValue)}</textarea><div class="config-editor-bar"><button class="btn primary" id="configSaveFileBtn" data-server-mutation="true" type="button">Save changes</button></div></div>`; body.querySelector("#editorCloseBtn").addEventListener("click",closeModal); body.querySelector("#configSaveFileBtn").addEventListener("click",async()=>{const btn=body.querySelector("#configSaveFileBtn");btn.disabled=true;btn.textContent="Saving…";try{await withServerMutationLock("save " + file.name,async function(cfg){await writeCraftyTextFile(cfg,file.path,body.querySelector("#configEditorText").value,openedModifiedEpoch||file.modifiedEpoch||0,false);toast(file.name+" saved","ok");});}catch(e){toast("Couldn't save "+file.name+": "+e.message,"error");}finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}}); renderServerState();},{wide:true});
+  function renderJsonHeroTreeNode(value, key, path, depth) {
+    const label = key === null ? "$" : String(key);
+    const type = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    const searchText = (label + " " + type + " " + ((value === null || typeof value !== "object") ? String(value) : "")).toLowerCase();
+    const pathAttr = escapeHtml(JSON.stringify(path));
+
+    if (value !== null && typeof value === "object") {
+      const entries = Array.isArray(value)
+        ? value.map((child, index) => [String(index), child])
+        : Object.entries(value);
+      let children = "";
+      for (const pair of entries) children += renderJsonHeroTreeNode(pair[1], pair[0], path.concat(Array.isArray(value) ? Number(pair[0]) : pair[0]), depth + 1);
+      const labelHtml = '<span class="jh-key">' + escapeHtml(label) + '</span>';
+      const typeHtml = '<span class="jh-type">' + (Array.isArray(value) ? "array" : "object") + '</span>';
+      const countHtml = '<span class="jh-count">' + entries.length + ' item' + (entries.length === 1 ? "" : "s") + '</span>';
+      return '<details class="jh-node jh-branch" data-jh-search="' + escapeHtml(searchText) + '" ' + (depth < 2 ? "open" : "") + '>' +
+        '<summary>' + labelHtml + typeHtml + countHtml + '</summary>' +
+        '<div class="jh-children">' + (children || '<div class="muted" style="padding:.4rem .7rem;">Empty ' + (Array.isArray(value) ? "array" : "object") + '</div>') + '</div></details>';
     }
+
+    let input = "";
+    if (type === "boolean") {
+      input = '<input type="checkbox" data-jh-path="' + pathAttr + '" data-jh-type="boolean" ' + (value ? "checked" : "") + ' aria-label="' + escapeHtml(label) + '">';
+    } else if (type === "number") {
+      input = '<input type="number" step="any" data-jh-path="' + pathAttr + '" data-jh-type="number" value="' + escapeHtml(value) + '" aria-label="' + escapeHtml(label) + '">';
+    } else if (type === "null") {
+      input = '<input type="text" data-jh-path="' + pathAttr + '" data-jh-type="null" value="null" aria-label="' + escapeHtml(label) + '" title="Leave as null or enter a value">';
+    } else {
+      input = '<input type="text" data-jh-path="' + pathAttr + '" data-jh-type="string" value="' + escapeHtml(value) + '" aria-label="' + escapeHtml(label) + '">';
+    }
+    return '<div class="jh-node jh-leaf" data-jh-search="' + escapeHtml(searchText) + '">' +
+      '<div class="jh-leaf-heading"><span class="jh-key">' + escapeHtml(label) + '</span><span class="jh-type">' + escapeHtml(type) + '</span></div>' +
+      '<div>' + input + '</div></div>';
+  }
+
+  function applyJsonHeroTreeSearch(tree, query) {
+    if (!tree) return;
+    const q = String(query || "").trim().toLowerCase();
+    const nodes = Array.from(tree.querySelectorAll(".jh-node")).reverse();
+    nodes.forEach(node => {
+      const ownMatch = !q || String(node.dataset.jhSearch || "").includes(q);
+      const children = Array.from(node.children).find(child => child.classList.contains("jh-children"));
+      const childMatches = Boolean(children && Array.from(children.children).some(child => !child.hidden));
+      node.hidden = !ownMatch && !childMatches;
+      if (node.tagName === "DETAILS" && q && childMatches) node.open = true;
+    });
+  }
+
+  function collectJsonHeroTreeData(tree, originalData) {
+    const next = JSON.parse(JSON.stringify(originalData));
+    const inputs = tree.querySelectorAll("[data-jh-path]");
+    inputs.forEach(input => {
+      const path = JSON.parse(input.dataset.jhPath || "[]");
+      if (!path.length) return;
+      const type = input.dataset.jhType;
+      let value;
+      if (type === "boolean") value = Boolean(input.checked);
+      else if (type === "number") {
+        if (String(input.value).trim() === "" || !Number.isFinite(Number(input.value))) throw new Error("Enter a valid number for " + path.join("."));
+        value = Number(input.value);
+      } else if (type === "null") {
+        const raw = String(input.value || "").trim();
+        if (!raw || raw.toLowerCase() === "null") value = null;
+        else if (raw.toLowerCase() === "true" || raw.toLowerCase() === "false") value = raw.toLowerCase() === "true";
+        else if (/^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)) value = Number(raw);
+        else value = raw;
+      } else value = input.value;
+      setPathValue(next, path, value);
+    });
+    return next;
+  }
+
+  async function openConfigEditor(file) {
+    if (!file) return;
+    try { await requireServerStopped("edit a config file"); }
+    catch (e) { toast(e.message, "warn"); return; }
+
+    openModal(body => {
+      body.innerHTML = '<div class="config-editor"><div class="modal-loading">Loading ' + escapeHtml(file.name) + '…</div></div>';
+    }, {wide:true});
+
+    let rawText = "";
+    let openedModifiedEpoch = 0;
+    const isJson = String(file.name || "").toLowerCase().endsWith(".json");
+
+    try {
+      if (!isLikelyTextConfig(file)) throw new Error("This file type is not treated as an editable text configuration yet.");
+      const result = await readCraftyTextFile(getConfig(), file.path);
+      rawText = result.content;
+      openedModifiedEpoch = Number(result.attributes?.modified_epoch || 0);
+    } catch (e) {
+      openModal(body => {
+        body.innerHTML = '<div class="config-editor"><div class="config-editor-head"><div><div class="config-editor-title">' + escapeHtml(file.name) + '</div><div class="config-editor-path">' + escapeHtml(file.path) + '</div></div><button class="btn ghost small" id="jsonHeroCloseBtn" type="button">Close</button></div><p class="error-text">Couldn’t load this file from Crafty: ' + escapeHtml(e.message || e) + '</p></div>';
+        body.querySelector("#jsonHeroCloseBtn").addEventListener("click", closeModal);
+      }, {wide:true});
+      return;
+    }
+
+    let jsonData = null;
+    let jsonValid = false;
+    if (isJson) {
+      try { jsonData = JSON.parse(rawText); jsonValid = true; }
+      catch (_) { jsonValid = false; }
+    }
+    const objectTreeAvailable = jsonValid && jsonData !== null && typeof jsonData === "object";
+
+    openModal(body => {
+      const modeTabs = isJson
+        ? '<div class="jsonhero-tabs"><button type="button" class="jsonhero-tab ' + (objectTreeAvailable ? "active" : "") + '" data-jsonhero-mode="tree" ' + (objectTreeAvailable ? "" : "disabled") + '>Tree view</button><button type="button" class="jsonhero-tab ' + (objectTreeAvailable ? "" : "active") + '" data-jsonhero-mode="text">Edit JSON</button><span class="spacer"></span><span class="jh-type">Local only</span></div>'
+        : '<div class="jsonhero-subtitle">Plain-text editor · edits stay in Tinker until you save.</div>';
+      body.innerHTML =
+        '<div class="jsonhero-editor">' +
+          '<div class="jsonhero-head"><div class="jsonhero-title">' + escapeHtml(file.name) + '</div><div class="jsonhero-path">' + escapeHtml(file.path) + '</div><div class="jsonhero-subtitle">' +
+            (isJson ? 'JSON Hero-inspired tree navigation, value editing, search, and validated JSON text mode. The file stays on your Crafty server; its contents are not sent to a JSON viewing website.' : 'Direct text editing preserves comments and formatting in this config file.') +
+          '</div></div>' +
+          modeTabs +
+          (isJson && objectTreeAvailable ? '<input id="jsonHeroSearch" class="jsonhero-search" type="search" placeholder="Search keys, types, or values…"><div id="jsonHeroTreePanel" class="jsonhero-tree"></div>' : '') +
+          '<div id="jsonHeroTextPanel" ' + (isJson && objectTreeAvailable ? 'hidden' : '') + '>' +
+            '<textarea id="jsonHeroText" class="jsonhero-code" spellcheck="false" aria-label="Configuration file text"></textarea>' +
+            (isJson ? '<div class="jsonhero-subtitle" id="jsonHeroValidation">' + (jsonValid ? 'Valid JSON.' : 'This file is not currently valid JSON. Edit it here to fix the syntax before saving.') + '</div>' : '') +
+          '</div>' +
+          '<div class="jsonhero-footer"><button class="btn primary" id="jsonHeroSaveBtn" type="button">Save changes</button><span class="jsonhero-status" id="jsonHeroStatus">Loaded</span><button class="btn ghost small" id="jsonHeroCloseBtn" type="button">Close</button></div>' +
+        '</div>';
+
+      const treePanel = body.querySelector("#jsonHeroTreePanel");
+      const textPanel = body.querySelector("#jsonHeroTextPanel");
+      const textArea = body.querySelector("#jsonHeroText");
+      const validation = body.querySelector("#jsonHeroValidation");
+      const status = body.querySelector("#jsonHeroStatus");
+      const saveButton = body.querySelector("#jsonHeroSaveBtn");
+      let mode = objectTreeAvailable ? "tree" : "text";
+
+      textArea.value = rawText;
+
+      function renderTree() {
+        if (!treePanel || !jsonData || typeof jsonData !== "object") return;
+        treePanel.innerHTML = renderJsonHeroTreeNode(jsonData, null, [], 0);
+        applyJsonHeroTreeSearch(treePanel, body.querySelector("#jsonHeroSearch")?.value || "");
+      }
+
+      function updateJsonValidation() {
+        if (!isJson || !validation) return;
+        try {
+          JSON.parse(textArea.value);
+          validation.textContent = "Valid JSON.";
+          validation.className = "jsonhero-subtitle";
+        } catch (e) {
+          validation.textContent = "Invalid JSON: " + e.message;
+          validation.className = "error-text";
+        }
+      }
+
+      function setMode(nextMode) {
+        if (nextMode === "text" && mode === "tree" && treePanel) {
+          try {
+            jsonData = collectJsonHeroTreeData(treePanel, jsonData);
+            textArea.value = JSON.stringify(jsonData, null, 2) + "\n";
+            updateJsonValidation();
+          } catch (e) {
+            toast("Couldn’t prepare JSON text: " + e.message, "error");
+            return;
+          }
+        } else if (nextMode === "tree" && mode === "text") {
+          try {
+            jsonData = JSON.parse(textArea.value);
+            if (jsonData === null || typeof jsonData !== "object") throw new Error("Tree view needs a JSON object or array at the root.");
+            if (treePanel) treePanel.innerHTML = renderJsonHeroTreeNode(jsonData, null, [], 0);
+            applyJsonHeroTreeSearch(treePanel, body.querySelector("#jsonHeroSearch")?.value || "");
+          } catch (e) {
+            toast("Fix the JSON errors before opening Tree view: " + e.message, "warn");
+            return;
+          }
+        }
+        mode = nextMode;
+        body.querySelectorAll("[data-jsonhero-mode]").forEach(button => {
+          const active = button.dataset.jsonheroMode === mode;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+        if (treePanel) treePanel.hidden = mode !== "tree";
+        textPanel.hidden = mode !== "text";
+        const search = body.querySelector("#jsonHeroSearch");
+        if (search) search.hidden = mode !== "tree";
+      }
+
+      if (treePanel && objectTreeAvailable) renderTree();
+      body.querySelectorAll("[data-jsonhero-mode]").forEach(button => {
+        button.addEventListener("click", () => setMode(button.dataset.jsonheroMode));
+      });
+      const searchInput = body.querySelector("#jsonHeroSearch");
+      if (searchInput) searchInput.addEventListener("input", () => applyJsonHeroTreeSearch(treePanel, searchInput.value));
+      textArea.addEventListener("input", updateJsonValidation);
+
+      saveButton.addEventListener("click", async () => {
+        let output;
+        try {
+          if (isJson) {
+            if (mode === "tree" && treePanel) {
+              jsonData = collectJsonHeroTreeData(treePanel, jsonData);
+              output = JSON.stringify(jsonData, null, 2) + "\n";
+            } else {
+              output = textArea.value;
+              JSON.parse(output);
+            }
+          } else {
+            output = textArea.value;
+          }
+        } catch (e) {
+          if (status) status.textContent = "Please fix the value or JSON syntax before saving.";
+          toast("Couldn't save " + file.name + ": " + e.message, "error");
+          return;
+        }
+
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving…";
+        if (status) status.textContent = "Checking the server copy…";
+        try {
+          const savedResult = await withServerMutationLock("save " + file.name, async function(cfg) {
+            const current = await readCraftyTextFile(cfg, file.path);
+            const currentEpoch = Number(current.attributes?.modified_epoch || 0);
+            if (openedModifiedEpoch && currentEpoch && openedModifiedEpoch !== currentEpoch) {
+              throw new Error("This file changed after you opened it. Close it, refresh, and reopen before saving.");
+            }
+            await writeCraftyTextFile(cfg, file.path, output, currentEpoch, false);
+            return await readCraftyTextFile(cfg, file.path);
+          });
+          rawText = savedResult.content;
+          openedModifiedEpoch = Number(savedResult.attributes?.modified_epoch || 0);
+          if (isJson) {
+            jsonData = JSON.parse(rawText);
+            jsonValid = true;
+            textArea.value = rawText;
+            updateJsonValidation();
+            if (treePanel && jsonData !== null && typeof jsonData === "object") {
+              treePanel.innerHTML = renderJsonHeroTreeNode(jsonData, null, [], 0);
+              applyJsonHeroTreeSearch(treePanel, searchInput?.value || "");
+            }
+          }
+          if (status) status.textContent = "Saved just now";
+          toast(file.name + " saved", "ok");
+        } catch (e) {
+          if (status) status.textContent = "Save failed";
+          toast("Couldn't save " + file.name + ": " + (e?.message || e), "error");
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = "Save changes";
+          renderServerState();
+        }
+      });
+
+      body.querySelector("#jsonHeroCloseBtn").addEventListener("click", closeModal);
+      renderServerState();
+    }, {wide:true});
   }
 
 
