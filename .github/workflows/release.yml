@@ -10,8 +10,24 @@ permissions:
 
 jobs:
   release:
-    name: Build Windows release
-    runs-on: windows-latest
+    name: Build ${{ matrix.name }} release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin --bundles dmg
+          - name: macOS Intel
+            platform: macos-latest
+            args: --target x86_64-apple-darwin --bundles dmg
+          - name: Linux
+            platform: ubuntu-22.04
+            args: --bundles appimage,deb
+          - name: Windows
+            platform: windows-latest
+            args: --bundles nsis
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout repository
@@ -25,6 +41,14 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
       - name: Install frontend dependencies
         run: npm ci
@@ -60,5 +84,7 @@ jobs:
             - Added the Tauri signed updater pipeline.
           releaseDraft: false
           prerelease: false
+          retryAttempts: 3
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
