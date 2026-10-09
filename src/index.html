@@ -4017,8 +4017,12 @@
         if (!rootName) throw new Error("Player-data path has no filename.");
 
         // Avoid ever overwriting or deleting a real root-level file with the same name.
-        let rootItems = [];
-        try { rootItems = await listCraftyDirectory(lockCfg, ".", null); } catch (_) {}
+        let rootItems;
+        try {
+          rootItems = await listCraftyDirectory(lockCfg, ".", null);
+        } catch (e) {
+          throw new Error("Tinker couldn't verify the server root is safe for a temporary copy: " + (e?.message || e));
+        }
         const existsAtRoot = rootItems.some(item =>
           String(basename(item.path || item.name) || "").toLowerCase() === rootName.toLowerCase()
         );
