@@ -3932,6 +3932,33 @@
     }
   }
 
+  async function downloadPlayerDataBuffer(cfg, player) {
+    try {
+      return await downloadCraftyRawFileBuffer(cfg, player.dataPath);
+    } catch (directError) {
+      const normalized = String(player.dataPath || "").replace(/\\/g,"/").replace(/^\/+/,"");
+      const slash = normalized.lastIndexOf("/");
+      if (slash < 0) throw directError;
+      const parent = normalized.slice(0, slash);
+      const filename = normalized.slice(slash + 1).toLowerCase();
+      try {
+        const archiveBuffer = await downloadCraftyDirectoryArchive(cfg, parent);
+        const entries = listZipEntries(archiveBuffer);
+        const match = entries.find(item => {
+          const itemPath = String(item.name || "").replace(/\\/g,"/").replace(/^\/+/,"").toLowerCase();
+          return !itemPath.endsWith("/") && (itemPath === filename || itemPath.endsWith("/" + filename));
+        });
+        if (!match) throw new Error("The player-data folder archive did not contain " + filename);
+        const bytes = await extractZipEntry(archiveBuffer, match);
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      } catch (archiveError) {
+        throw new Error("Crafty couldn't download this player-data file directly (" +
+          (directError?.message || directError) + ") or via its folder archive (" +
+          (archiveError?.message || archiveError) + ").");
+      }
+    }
+  }
+
   async function openPlayerDataMenu(player){
     openModal(function(body){
       body.innerHTML="<div class=\"modal-head\">"+playerAvatarMarkup(player)+"<div><h3>"+escapeHtml(player.name)+"</h3><div class=\"modal-sub\">"+escapeHtml(player.uuid)+"</div></div></div>"+
@@ -3944,7 +3971,7 @@
         const btn=body.querySelector("#openPlayerNbtBtn");
         btn.disabled=true; btn.textContent="Downloading player data…";
         try{
-          const buffer=await downloadCraftyRawFileBuffer(getConfig(),player.dataPath);
+          const buffer=await downloadPlayerDataBuffer(getConfig(),player);
           await window.__TAURI__.core.invoke("launch_nbt_explorer",{path:player.dataPath,dataBase64:base64FromArrayBuffer(buffer)});
           btn.textContent="Opened in NBT Explorer";
           toast("Opened a local copy of "+player.dataPath,"ok");
@@ -4552,7 +4579,13 @@
       const iconPreview = document.getElementById("serverIconPreview");
       if (iconPreview) {
         try {
-          const buffer = await downloadCraftyRawFileBuffer(cfg, "server-icon.png");
+          let iconPath = "server-icon.png";
+          try {
+            const rootItems = await listCraftyDirectory(cfg, ".", null);
+            const foundIcon = rootItems.find(item => !item.isDirectory && String(item.name || "").toLowerCase() === "server-icon.png");
+            if (foundIcon) iconPath = String(foundIcon.path || foundIcon.name || iconPath);
+          } catch (_) {}
+          const buffer = await downloadCraftyRawFileBuffer(cfg, iconPath);
           const bytes = new Uint8Array(buffer);
           const isPng = bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
           if (!isPng) throw new Error("server-icon.png is not a PNG");
