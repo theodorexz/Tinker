@@ -3999,15 +3999,47 @@
       archiveError = e;
     }
 
+    let directError = null;
     try {
       return await downloadCraftyRawFileBuffer(cfg, normalized);
-    } catch (directError) {
-      throw new Error(
-        "Couldn't download " + normalized + ". Folder archive: " +
-        (archiveError?.message || archiveError) + ". Direct file request: " +
-        (directError?.message || directError)
-      );
+    } catch (e) {
+      directError = e;
     }
+
+    // Last-resort compatibility path: some Crafty builds cannot route a GET for a
+    // nested filename. Copy the file to a unique flat temporary name through the file
+    // operation API, download that root-level file, then immediately remove the copy.
+    let copyError = null;
+    try {
+      return await withServerMutationLock("prepare player-data download", async function(lockCfg) {
+        const tempName = ".tinker-player-read-" +
+          (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2))) +
+          ".dat";
+        const copyRes = await craftyFetch(lockCfg,
+          "/api/v2/servers/" + encodeURIComponent(lockCfg.serverId) + "/files/copy", {
+            method:"POST",
+            headers:{"Content-Type":"application/json","Accept":"application/json"},
+            body:JSON.stringify({file_system_objects:[{source_path:normalized,target_path:tempName}]})
+          });
+        const copyText = await copyRes.text().catch(() => "");
+        if (!copyRes.ok) throw new Error("Crafty file copy returned HTTP " + copyRes.status +
+          (copyText ? " — " + copyText.replace(/\s+/g," ").slice(0,240) : ""));
+        try {
+          return await downloadCraftyRawFileBuffer(lockCfg,tempName);
+        } finally {
+          try { await deleteServerPath(lockCfg,tempName); } catch (_) {}
+        }
+      });
+    } catch (e) {
+      copyError = e;
+    }
+
+    throw new Error(
+      "Couldn't download " + normalized +
+      ". Folder archive: " + (archiveError?.message || archiveError) +
+      ". Direct file request: " + (directError?.message || directError) +
+      ". Temporary-copy fallback: " + (copyError?.message || copyError)
+    );
   }
 
   function playerBuffersEqual(a, b) {
