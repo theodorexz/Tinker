@@ -3707,16 +3707,17 @@
     const icon = depEntry?.localIconDataUrl || depEntry?.iconUrl || project?.icon_url || "";
     const versionText = depEntry?.versionNumber ? "v" + depEntry.versionNumber : dep.file_name ? dep.file_name : "not installed";
     const missing = !depEntry;
-    return `<div class="dependency-node ${missing ? "missing" : ""}">
-      <span class="installed-preview ${depEntry?.localIconDataUrl ? "local-icon" : (icon ? "" : "remote")}">${icon ? `<img src="${escapeHtml(icon)}" alt="" loading="lazy">` : "DEP"}</span>
-      <div style="min-width:0;flex:1;">
-        <div class="dependency-line-title">${escapeHtml(title)}</div>
-        <div class="dependency-line-sub">${missing ? "Missing dependency" : "Dependency · " + escapeHtml(versionText)}</div>
-      </div>
-      <span class="dependency-badge">Dependency</span>
-    </div>`;
+    const iconMarkup = icon ? '<img src="' + escapeHtml(icon) + '" alt="" loading="lazy">' : "DEP";
+    const searchMarkup = missing
+      ? '<button class="btn small dependency-search-btn" type="button" data-dependency-search="' + escapeHtml(title) + '">Search for ' + escapeHtml(title) + '</button>'
+      : '<span class="dependency-badge">Dependency</span>';
+    return '<div class="dependency-node ' + (missing ? "missing" : "") + '">' +
+      '<span class="installed-preview ' + (depEntry?.localIconDataUrl ? "local-icon" : (icon ? "" : "remote")) + '">' + iconMarkup + '</span>' +
+      '<div style="min-width:0;flex:1;">' +
+        '<div class="dependency-line-title">' + escapeHtml(title) + '</div>' +
+        '<div class="dependency-line-sub">' + (missing ? "Missing dependency" : "Dependency · " + escapeHtml(versionText)) + '</div>' +
+      '</div>' + searchMarkup + '</div>';
   }
-
   function renderMainExplorerEntry(entry) {
     const latest = entry.projectId ? latestCache[entry.projectId] : null;
     const hasUpdate = Boolean(latest && entry.versionId && latest.id !== entry.versionId);
@@ -3854,6 +3855,17 @@
       if (configBtn) configBtn.addEventListener("click", () => openConfigurationForMod(entry));
       const linkBtn = row.querySelector(".link-mod-btn");
       if (linkBtn) linkBtn.addEventListener("click", () => openMatchPicker(entry));
+      row.querySelectorAll(".dependency-search-btn").forEach(searchBtn => searchBtn.addEventListener("click", event => {
+        event.stopPropagation();
+        const searchName = String(searchBtn.dataset.dependencySearch || "").trim();
+        if (!searchName || searchName === "Unknown dependency") {
+          toast("This dependency has no project name. Use Find on Modrinth to search manually.", "warn");
+          return;
+        }
+        switchTab("browse");
+        els.searchInput.value = searchName;
+        doSearch(true);
+      }));
       const deleteBtn = row.querySelector(".delete-btn");
       if (deleteBtn && !deleteBtn.disabled) deleteBtn.addEventListener("click", () => deleteMod(entry));
     });
