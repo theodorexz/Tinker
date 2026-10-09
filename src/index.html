@@ -366,6 +366,15 @@
   .modal-desc-label { font-size: 0.72rem; color: var(--text-faint); text-transform: lowercase; margin-top: 0.6rem; }
   .modal-desc { word-break:break-word; font-family:var(--sans); font-size:.84rem; line-height:1.58; color:var(--text-dim); max-height:40vh; overflow-y:auto; background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:.8rem .9rem; margin-top:.3rem; }
   .modal-desc h2,.modal-desc h3,.modal-desc h4 { color:var(--text); margin:.9rem 0 .45rem; line-height:1.25; }
+  .modal-desc { max-height:68vh; }
+  .modrinth-description-frame { display:block; width:100%; height:62vh; min-height:420px; border:1px solid var(--border-soft); border-radius:8px; background:#fff; }
+  .modrinth-iframe-note { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem; margin-bottom:.6rem; color:var(--text-faint); font-size:.72rem; line-height:1.4; }
+  .modrinth-iframe-note a { color:var(--brand-bright); text-decoration:underline; }
+  .modrinth-description-fallback { margin-top:.7rem; border:1px solid var(--border-soft); border-radius:8px; padding:.6rem .75rem; }
+  .modrinth-description-fallback summary { cursor:pointer; font-size:.75rem; color:var(--text-dim); font-weight:700; }
+  .modrinth-fallback-content { margin-top:.7rem; }
+  .modrinth-description-frame-wrap { overflow:hidden; border-radius:8px; }
+  @media (max-width:700px) { .modrinth-description-frame { height:58vh; min-height:360px; } }
   .modal-desc h2 { font-size:1rem; } .modal-desc h3 { font-size:.92rem; } .modal-desc h4 { font-size:.86rem; }
   .modal-desc p { margin:.45rem 0; } .modal-desc p:first-child { margin-top:0; } .modal-desc p:last-child { margin-bottom:0; }
   .modal-desc ul,.modal-desc ol { margin:.45rem 0 .65rem 1.25rem; padding:0; } .modal-desc li { margin:.2rem 0; }
@@ -5182,7 +5191,12 @@
         linksEl.innerHTML=links.map(function(pair){return '<button class="link-btn external-link-btn" type="button" data-url="'+escapeHtml(pair[1])+'">'+escapeHtml(pair[0])+'</button>';}).join("");
         linksEl.querySelectorAll(".external-link-btn").forEach(function(btn){btn.addEventListener("click",async function(){try{await openExternalUrl(btn.dataset.url);}catch(e){toast("Couldn’t open link: "+(e&&e.message?e.message:e),"error");}});});
         const descEl=body.querySelector("#modalDesc");
-        descEl.innerHTML=renderModrinthMarkdown(p.body||p.description||"");
+        const modrinthPageUrl="https://modrinth.com/mod/"+encodeURIComponent(p.slug||projectId);
+        const fallbackDescription=renderModrinthMarkdown(p.body||p.description||"");
+        descEl.innerHTML=
+          '<div class="modrinth-iframe-note"><span>Embedded from Modrinth so its own layout, images, and HTML can render.</span><a href="#" data-external-url="'+escapeHtml(modrinthPageUrl)+'">Open full page ↗</a></div>'+
+          '<div class="modrinth-description-frame-wrap"><iframe class="modrinth-description-frame" src="'+escapeHtml(modrinthPageUrl)+'#description" title="'+escapeHtml(p.title)+' on Modrinth" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>'+
+          '<details class="modrinth-description-fallback"><summary>Use built-in description fallback</summary><div class="modrinth-fallback-content">'+fallbackDescription+'</div></details>';
         descEl.querySelectorAll("[data-external-url]").forEach(function(link){link.addEventListener("click",async function(e){e.preventDefault();try{await openExternalUrl(link.dataset.externalUrl);}catch(err){toast("Couldn’t open link: "+(err&&err.message?err.message:err),"error");}});});
         descEl.querySelectorAll("[data-description-image]").forEach(function(image){
           image.addEventListener("click",function(event){
