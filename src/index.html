@@ -1461,7 +1461,7 @@
     document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
     if (name === "explorer") { if (!hasLiveScan) scanInstalledMods(); }
     if (name === "players") loadPlayers();
-    if (name === "configuration") { renderConfigurationMods(); if (!configFilesLoaded) loadConfigFiles(); }
+    if (name === "configuration") { switchConfigView("server"); loadServerSettings(); }
   }
   tabButtons.forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
   els.installedToggleBtn.addEventListener("click", () => switchTab("explorer"));
@@ -4437,14 +4437,216 @@
   }
 
 
+  let serverSettingsLoaded = false;
+  let serverPropertiesModifiedEpoch = 0;
+  let serverPropertiesOriginalText = "";
+  const SERVER_PROPERTY_DEFAULTS = {
+    "motd":"A Minecraft Server", "max-players":"20", "pause-when-empty-seconds":"60",
+    "white-list":"false", "enforce-whitelist":"false", "difficulty":"easy", "gamemode":"survival",
+    "pvp":"true", "allow-flight":"false", "allow-nether":"true", "spawn-monsters":"true",
+    "spawn-animals":"true", "enable-command-block":"false", "online-mode":"true",
+    "force-gamemode":"false", "enable-status":"true", "hide-online-players":"false",
+    "view-distance":"10", "simulation-distance":"10", "spawn-protection":"16", "player-idle-timeout":"0"
+  };
+
+  function switchConfigView(view) {
+    const target = view === "mods" ? "mods" : "server";
+    document.querySelectorAll("[data-config-view]").forEach(btn => {
+      const selected = btn.dataset.configView === target;
+      btn.classList.toggle("active", selected);
+      btn.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+    document.querySelectorAll("[data-config-panel]").forEach(panel => {
+      const selected = panel.dataset.configPanel === target;
+      panel.hidden = !selected;
+      panel.classList.toggle("active", selected);
+    });
+    const pathBadge = document.getElementById("configFolderPath");
+    if (pathBadge) pathBadge.hidden = target !== "mods";
+    if (target === "server") loadServerSettings();
+    else {
+      renderConfigurationMods();
+      if (!configFilesLoaded) loadConfigFiles();
+    }
+  }
+
+  function replaceServerPropertyText(original, key, value) {
+    const lines = String(original || "").split(/\r?\n/);
+    const escapedKey = String(key).replace(/-/g, "\\-");
+    const pattern = new RegExp("^\\s*" + escapedKey + "\\s*=");
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (pattern.test(lines[i])) {
+        lines[i] = key + "=" + String(value);
+        found = true;
+      }
+    }
+    if (!found) {
+      while (lines.length && lines[lines.length - 1] === "") lines.pop();
+      lines.push(key + "=" + String(value));
+    }
+    return lines.join("\n") + (String(original || "").endsWith("\n") ? "\n" : "");
+  }
+
+  async function loadServerSettings(force) {
+    if (!connectionConfigured()) return;
+    if (serverSettingsLoaded && !force) return;
+    const status = document.getElementById("serverSettingsStatus");
+    const saveStatus = document.getElementById("serverSettingsSaveStatus");
+    if (status) status.textContent = "Loading server.properties…";
+    if (saveStatus) saveStatus.textContent = "";
+    try {
+      const cfg = getConfig();
+      const result = await readCraftyTextFile(cfg, "server.properties");
+      serverPropertiesOriginalText = result.content;
+      serverPropertiesModifiedEpoch = Number(result.attributes?.modified_epoch || 0);
+      const parsed = parseSimpleProperties(result.content).data;
+      document.querySelectorAll("[data-server-property]").forEach(el => {
+        const key = el.dataset.serverProperty;
+        const value = Object.prototype.hasOwnProperty.call(parsed, key)
+          ? String(parsed[key] ?? "")
+          : String(SERVER_PROPERTY_DEFAULTS[key] ?? "");
+        el.dataset.originalValue = value;
+        if (el.type === "checkbox") el.checked = value.toLowerCase() === "true";
+        else el.value = value;
+      });
+
+      const iconPreview = document.getElementById("serverIconPreview");
+      if (iconPreview) {
+        try {
+          const buffer = await downloadCraftyRawFileBuffer(cfg, "server-icon.png");
+          const bytes = new Uint8Array(buffer);
+          const isPng = bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+          if (!isPng) throw new Error("server-icon.png is not a PNG");
+          iconPreview.innerHTML = '<img alt="Current server icon" src="data:image/png;base64,' + base64FromArrayBuffer(buffer) + '">';
+        } catch (_) {
+          iconPreview.textContent = "No icon";
+        }
+      }
+
+      const whitelistSummary = document.getElementById("serverWhitelistSummary");
+      if (whitelistSummary) {
+        try {
+          const whitelist = await readCraftyTextFile(cfg, "whitelist.json");
+          const entries = JSON.parse(whitelist.content);
+          whitelistSummary.textContent = Array.isArray(entries)
+            ? entries.length + " player" + (entries.length === 1 ? "" : "s") + " listed in whitelist.json"
+            : "whitelist.json exists; use the editor to inspect its contents.";
+        } catch (_) {
+          whitelistSummary.textContent = "Whitelist file not found yet. You can edit it from here if it exists.";
+        }
+      }
+
+      serverSettingsLoaded = true;
+      if (status) status.textContent = "Loaded server.properties · changes require a server restart to apply.";
+    } catch (e) {
+      serverSettingsLoaded = false;
+      if (status) status.textContent = "Couldn't load server settings: " + (e?.message || e);
+    }
+    renderServerState();
+  }
+
+  async function saveServerSettings() {
+    const status = document.getElementById("serverSettingsSaveStatus");
+    const button = document.getElementById("serverSettingsSaveBtn");
+    const changes = [];
+    document.querySelectorAll("[data-server-property]").forEach(el => {
+      const key = el.dataset.serverProperty;
+      const value = el.type === "checkbox" ? String(Boolean(el.checked)) : String(el.value).trim();
+      if (value !== String(el.dataset.originalValue ?? "")) changes.push({key,value});
+    });
+    if (!changes.length) {
+      if (status) status.textContent = "No changes to save.";
+      return;
+    }
+    for (const change of changes) {
+      const el = Array.from(document.querySelectorAll("[data-server-property]")).find(item => item.dataset.serverProperty === change.key);
+      if (el && el.dataset.serverType === "number" && (!Number.isFinite(Number(change.value)) || Number(change.value) < 0)) {
+        toast("Enter a valid non-negative number for " + change.key + ".", "warn");
+        if (el.focus) el.focus();
+        return;
+      }
+    }
+
+    if (button) { button.disabled = true; button.textContent = "Saving…"; }
+    if (status) status.textContent = "Saving changes to Crafty…";
+    try {
+      await withServerMutationLock("save server settings", async function(cfg) {
+        const current = await readCraftyTextFile(cfg, "server.properties");
+        let nextText = current.content;
+        for (const change of changes) nextText = replaceServerPropertyText(nextText, change.key, change.value);
+        await writeCraftyTextFile(cfg, "server.properties", nextText, Number(current.attributes?.modified_epoch || 0), true);
+      });
+      serverSettingsLoaded = false;
+      await loadServerSettings(true);
+      if (status) status.textContent = "Saved. Restart the Minecraft server to apply the settings.";
+      toast("Server settings saved. Restart the server to apply them.", "ok");
+    } catch (e) {
+      if (status) status.textContent = "Save failed: " + (e?.message || e);
+      toast("Couldn't save server settings: " + (e?.message || e), "error");
+    } finally {
+      if (button) { button.disabled = false; button.textContent = "Save server settings"; }
+      renderServerState();
+    }
+  }
+
+  async function uploadServerIcon() {
+    const input = document.getElementById("serverIconInput");
+    const button = document.getElementById("serverIconUploadBtn");
+    const status = document.getElementById("serverIconStatus");
+    const file = input?.files?.[0];
+    if (!file) { toast("Choose a PNG image first.", "warn"); return; }
+    if (button) { button.disabled = true; button.textContent = "Uploading…"; }
+    if (status) status.textContent = "";
+    try {
+      if (file.type && file.type !== "image/png") throw new Error("Choose a PNG image.");
+      const bitmap = await createImageBitmap(file);
+      const dimensionsOK = bitmap.width === 64 && bitmap.height === 64;
+      if (bitmap.close) bitmap.close();
+      if (!dimensionsOK) throw new Error("The server icon must be exactly 64 × 64 pixels.");
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const isPng = bytes.length > 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+      if (!isPng) throw new Error("That file doesn't look like a PNG.");
+      await withServerMutationLock("upload server icon", async function(cfg) {
+        await uploadBufferToServer(cfg, ".", "server-icon.png", buffer);
+      });
+      const preview = document.getElementById("serverIconPreview");
+      if (preview) preview.innerHTML = '<img alt="Current server icon" src="data:image/png;base64,' + base64FromArrayBuffer(buffer) + '">';
+      if (status) status.textContent = "Uploaded · restart server to apply";
+      toast("Server icon uploaded. Restart the server to apply it.", "ok");
+      if (input) input.value = "";
+    } catch (e) {
+      if (status) status.textContent = "Upload failed";
+      toast("Couldn't upload server icon: " + (e?.message || e), "error");
+    } finally {
+      if (button) { button.disabled = !input?.files?.length; button.textContent = "Upload server icon"; }
+      renderServerState();
+    }
+  }
+
   function openConfigurationForMod(mod) {
     if (!mod) return;
     switchTab("configuration");
+    switchConfigView("mods");
     configSelectedModId = String(mod.projectId || mod.filename);
     loadConfigFiles().then(() => selectConfigMod(mod));
   }
 
-  document.getElementById("configRefreshBtn").addEventListener("click", () => { configFilesLoaded = false; loadConfigFiles(true); });
+  document.querySelectorAll("[data-config-view]").forEach(btn => btn.addEventListener("click", () => switchConfigView(btn.dataset.configView)));
+  document.getElementById("configRefreshBtn").addEventListener("click", () => {
+    configFilesLoaded = false;
+    serverSettingsLoaded = false;
+    loadServerSettings(true);
+    loadConfigFiles(true);
+  });
+  document.getElementById("serverSettingsSaveBtn").addEventListener("click", saveServerSettings);
+  document.getElementById("serverIconInput").addEventListener("change", () => {
+    const input = document.getElementById("serverIconInput");
+    document.getElementById("serverIconUploadBtn").disabled = !input.files?.length;
+  });
+  document.getElementById("serverIconUploadBtn").addEventListener("click", uploadServerIcon);
+  document.getElementById("openWhitelistEditorBtn").addEventListener("click", () => openConfigEditor({name:"whitelist.json",path:"whitelist.json"}));
   document.getElementById("configModSearch").addEventListener("input", renderConfigurationMods);
   document.getElementById("configFileSearch").addEventListener("input", renderConfigFileList);
   document.getElementById("configConfigureBtn").addEventListener("click", () => {
