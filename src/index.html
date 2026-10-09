@@ -1955,11 +1955,12 @@
   async function downloadCraftyRawFileBuffer(cfg, filePath) {
     const clean = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
     if (!clean) throw new Error("Empty Crafty file path");
-    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
+    // Crafty's actual route is /files/{encoded_file_path}/download.
+    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/";
     const endpoints = Array.from(new Set([
-      endpointBase + encodeCraftyDownloadPath(clean),
-      endpointBase + encodeURIComponent(clean),
-      endpointBase + clean.split("/").map(encodeURIComponent).join("/")
+      endpointBase + encodeCraftyDownloadPath(clean) + "/download",
+      endpointBase + encodeURIComponent(clean) + "/download",
+      endpointBase + clean.split("/").map(encodeURIComponent).join("/") + "/download"
     ]));
     let lastError = null;
     for (const endpoint of endpoints) {
@@ -2424,11 +2425,12 @@
   async function downloadCraftyDirectoryArchive(cfg, dirPath) {
     const clean = String(dirPath || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
     if (!clean) throw new Error("Empty Crafty mods directory path");
-    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
+    // Crafty's actual route is /files/{encoded_file_path}/download.
+    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/";
     const endpoints = Array.from(new Set([
-      endpointBase + encodeCraftyDownloadPath(clean),
-      endpointBase + encodeURIComponent(clean),
-      endpointBase + clean.split("/").map(encodeURIComponent).join("/")
+      endpointBase + encodeCraftyDownloadPath(clean) + "/download",
+      endpointBase + encodeURIComponent(clean) + "/download",
+      endpointBase + clean.split("/").map(encodeURIComponent).join("/") + "/download"
     ]));
     let lastError = null;
     for (const endpoint of endpoints) {
@@ -2557,10 +2559,11 @@
     if (!clean) throw new Error("Empty Crafty file path");
     const encodedSegments = clean.split("/").map(encodeURIComponent).join("/");
     const encodedWhole = encodeURIComponent(clean);
-    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
+    const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/";
     const candidates = [
-      endpointBase + encodedWhole,
-      endpointBase + encodedSegments,
+      endpointBase + encodeCraftyDownloadPath(clean) + "/download",
+      endpointBase + encodedWhole + "/download",
+      endpointBase + encodedSegments + "/download",
     ];
     let lastError = null;
     for (const endpoint of candidates) {
