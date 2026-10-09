@@ -5258,8 +5258,91 @@
     return sanitizeModrinthHtml(out.join(""));
   }
 
+  const DESCRIPTION_IMAGE_PROXY_HOSTS = [
+    "cdn.modrinth.com", "i.imgur.com", "cdn.discordapp.com",
+    "media.forgecdn.net", "raw.githubusercontent.com", "images.unsplash.com",
+    "cdn.jsdelivr.net"
+  ];
+
+  function isDescriptionImageProxyAllowed(url) {
+    try {
+      const parsed = new URL(String(url || ""));
+      if (parsed.protocol !== "https:") return false;
+      const host = parsed.hostname.toLowerCase();
+      return DESCRIPTION_IMAGE_PROXY_HOSTS.some(domain => host === domain || host.endsWith("." + domain));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function replaceFailedDescriptionImage(image, url) {
+    const link = document.createElement("a");
+    link.href = "#";
+    link.className = "description-image-fallback";
+    link.dataset.externalUrl = url;
+    link.textContent = "Image couldn't be embedded — open image ↗";
+    link.addEventListener("click", async function(event) {
+      event.preventDefault();
+      try { await openExternalUrl(url); }
+      catch (error) { toast("Couldn't open image: " + (error && error.message ? error.message : error), "error"); }
+    });
+    image.replaceWith(link);
+  }
+
+  function wireModrinthDescriptionImages(container) {
+    if (!container) return;
+    container.querySelectorAll("[data-description-image]").forEach(function(image) {
+      const originalUrl = image.dataset.descriptionImage || image.src;
+      image.addEventListener("click", function(event) {
+        event.preventDefault();
+        showDescriptionImage(image.dataset.descriptionImage || image.src, image.alt || "");
+      });
+      image.addEventListener("error", async function() {
+        const url = image.dataset.descriptionImage || originalUrl;
+        if (image.dataset.imageProxyAttempted === "true") {
+          replaceFailedDescriptionImage(image, originalUrl);
+          return;
+        }
+        image.dataset.imageProxyAttempted = "true";
+        if (!nativeBridgeAvailable() || !isDescriptionImageProxyAllowed(url)) {
+          replaceFailedDescriptionImage(image, originalUrl);
+          return;
+        }
+
+        try {
+          const response = await nativeHttpFetch(url, {
+            method:"GET",
+            headers:{"Accept":"image/avif,image/webp,image/png,image/jpeg,image/gif,*/*"}
+          }, false);
+          const mime = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+          const expectedImageMime = ["image/png","image/jpeg","image/gif","image/webp","image/avif"].includes(mime);
+          const contentLength = Number(response.headers.get("content-length") || 0);
+          if (!response.ok || !expectedImageMime || (contentLength && contentLength > 5 * 1024 * 1024)) {
+            replaceFailedDescriptionImage(image, originalUrl);
+            return;
+          }
+          const buffer = await response.arrayBuffer();
+          if (!buffer.byteLength || buffer.byteLength > 5 * 1024 * 1024 || !image.isConnected) {
+            if (image.isConnected) replaceFailedDescriptionImage(image, originalUrl);
+            return;
+          }
+          const dataUrl = "data:" + mime + ";base64," + base64FromArrayBuffer(buffer);
+          image.dataset.descriptionImage = dataUrl;
+          image.onerror = function() {
+            image.onerror = null;
+            replaceFailedDescriptionImage(image, originalUrl);
+          };
+          image.src = dataUrl;
+        } catch (_) {
+          if (image.isConnected) replaceFailedDescriptionImage(image, originalUrl);
+        }
+      }, {once:true});
+    });
+  }
+
   function showDescriptionImage(url, alt) {
-    if (!/^https:\/\//i.test(String(url || ""))) return;
+    const safeUrl = String(url || "");
+    if (!/^https:\/\//i.test(safeUrl) && !/^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i.test(safeUrl)) return;
     const previous = document.querySelector(".description-image-lightbox");
     if (previous) previous.remove();
 
@@ -5331,12 +5414,7 @@
           '<div class="modrinth-iframe-note"><span>Modrinth description</span><a href="#" data-external-url="'+escapeHtml(modrinthPageUrl)+'">Open full page ↗</a></div>'+
           (nativeDescription || '<p class="muted">No description was provided for this project.</p>');
         descEl.querySelectorAll("[data-external-url]").forEach(function(link){link.addEventListener("click",async function(e){e.preventDefault();try{await openExternalUrl(link.dataset.externalUrl);}catch(err){toast("Couldn’t open link: "+(err&&err.message?err.message:err),"error");}});});
-        descEl.querySelectorAll("[data-description-image]").forEach(function(image){
-          image.addEventListener("click",function(event){
-            event.preventDefault();
-            showDescriptionImage(image.dataset.descriptionImage || image.src,image.alt || "");
-          });
-        });
+        wireModrinthDescriptionImages(descEl);
       });
     }catch(e){ openModal(function(body){body.innerHTML='<p class="error-text">Couldn\'t load mod info: '+escapeHtml(e.message)+'</p>';}); }
   }
