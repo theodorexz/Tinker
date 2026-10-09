@@ -3431,21 +3431,89 @@
     setBtnState(btn, "working", "Finding version…");
     logEl.textContent = "";
     try {
-      const { version, file } = await findMatchingVersion(hit.project_id);
-      setBtnState(btn, "working", "Downloading…");
-      const buf = await downloadModrinthFile(file, "standalone");
+      const rootMatch = await findMatchingVersion(hit.project_id);
+      setBtnState(btn, "working", "Checking dependencies…");
+
+      let dependencyPlan = [];
+      let skippedDependencies = [];
+      try {
+        const dependencyResult = await buildRequiredServerDependencyPlan(hit.project_id, rootMatch.version);
+        dependencyPlan = dependencyResult.plan;
+        skippedDependencies = dependencyResult.skipped;
+      } catch (dependencyError) {
+        toast("Couldn't fully check dependencies: " + (dependencyError?.message || dependencyError), "warn");
+      }
+
+      let installDependencies = false;
+      if (dependencyPlan.length) {
+        const dependencyNames = dependencyPlan.slice(0, 12).map(item =>
+          "• " + item.project.title + " — " + item.version.version_number
+        );
+        if (dependencyPlan.length > 12) dependencyNames.push("• and " + (dependencyPlan.length - 12) + " more");
+        installDependencies = window.confirm(
+          "Would you like to download this mod's dependencies? It might not function without them.\n\n" +
+          "Required dependencies that can run on this server:\n" +
+          dependencyNames.join("\n") +
+          "\n\nChoose OK to download these too, or Cancel to install only " + (hit.title || "this mod") + "."
+        );
+      }
+
+      const queue = (installDependencies ? dependencyPlan : []).concat([{
+        projectId:hit.project_id,
+        project:{
+          id:hit.project_id, slug:hit.slug || "", title:hit.title || "Mod",
+          icon_url:hit.icon_url || "", description:hit.description || "",
+          author:hit.author || "", downloads:Number(hit.downloads || 0),
+          followers:Number(hit.followers || 0), categories:hit.categories || hit.display_categories || []
+        },
+        version:rootMatch.version,
+        file:rootMatch.file,
+        isRoot:true
+      }]);
+
+      const downloaded = [];
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
+        setBtnState(btn, "working", "Downloading " + (i + 1) + "/" + queue.length + "…");
+        const buffer = await downloadModrinthFile(item.file, item.isRoot ? "standalone" : "dependency");
+        downloaded.push({...item,buffer});
+      }
+
       await withServerMutationLock("install " + hit.title, async function(lockCfg) {
-        setBtnState(btn, "working", "Uploading…");
-        await uploadJarToServer(lockCfg, file, buf);
-        upsertRegistry({
-          projectId: hit.project_id, slug: hit.slug, title: hit.title, author: hit.author,
-          iconUrl: hit.icon_url, versionId: version.id, versionNumber: version.version_number,
-          versionType: version.version_type, filename: file.filename,
-          loader: env.loader, gameVersions: version.game_versions, categories: hit.categories || [],
-          installedAt: new Date().toISOString(), source: "installed",
-        });
-        setBtnState(btn, "installed", "✓ Installed");
-        toast(hit.title + " installed", "ok");
+        for (let i = 0; i < downloaded.length; i++) {
+          const item = downloaded[i];
+          setBtnState(btn, "working", "Installing " + (i + 1) + "/" + downloaded.length + "…");
+          await uploadJarToServer(lockCfg, item.file, item.buffer);
+          upsertRegistry({
+            projectId:item.projectId,
+            slug:item.project.slug || "",
+            title:item.project.title || item.file.filename,
+            author:item.project.author || "",
+            iconUrl:item.project.icon_url || "",
+            description:item.project.description || "",
+            downloads:Number(item.project.downloads || 0),
+            followers:Number(item.project.followers || 0),
+            versionId:item.version.id,
+            versionNumber:item.version.version_number,
+            versionType:item.version.version_type,
+            filename:item.file.filename,
+            loader:env.loader,
+            loaderList:item.version.loaders || [],
+            gameVersions:item.version.game_versions || [],
+            categories:item.project.categories || item.project.display_categories || [],
+            dependencies:Array.isArray(item.version.dependencies) ? item.version.dependencies : [],
+            installedAt:new Date().toISOString(),
+            source:"installed"
+          });
+        }
+        setBtnState(btn, "installed", "\u2713 Installed");
+        toast(downloaded.length > 1
+          ? hit.title + " installed with " + (downloaded.length - 1) + " dependency mod(s)"
+          : hit.title + " installed", "ok");
+        if (skippedDependencies.length) {
+          const names = skippedDependencies.slice(0,3).map(item => item.title).join(", ");
+          toast("Some required dependencies could not be verified for this server: " + names, "warn");
+        }
         await scanInstalledMods();
       });
     } catch (e) {
@@ -3455,7 +3523,6 @@
       setTimeout(() => { if (btn.dataset.state === "error") setBtnState(btn, "", "Install"); }, 6000);
     }
   }
-
   async function updateMod(entry, chosen, options) {
     options = options || {};
     try {
