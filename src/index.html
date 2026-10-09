@@ -1930,14 +1930,24 @@
     return new TextEncoder().encode(String(text)).buffer;
   }
 
+  function encodeCraftyDownloadPath(path) {
+    // Crafty names the route argument "encoded_file_path" and HTML-unescapes it
+    // inside the handler. Encoding slash separators as HTML entities keeps the
+    // whole nested path inside the one route parameter on older Crafty versions.
+    return encodeURIComponent(String(path || "").replace(/\//g, "&#x2F;"));
+  }
+
   async function downloadCraftyRawFileBuffer(cfg, filePath) {
     const clean = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
     if (!clean) throw new Error("Empty Crafty file path");
-    const encodedWhole = encodeURIComponent(clean);
-    const encodedSegments = clean.split("/").map(encodeURIComponent).join("/");
     const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
+    const endpoints = Array.from(new Set([
+      endpointBase + encodeCraftyDownloadPath(clean),
+      endpointBase + encodeURIComponent(clean),
+      endpointBase + clean.split("/").map(encodeURIComponent).join("/")
+    ]));
     let lastError = null;
-    for (const endpoint of [endpointBase + encodedWhole, endpointBase + encodedSegments]) {
+    for (const endpoint of endpoints) {
       try {
         const res = await craftyFetch(cfg, endpoint, {method:"GET", headers:{"Accept":"application/octet-stream,application/json,*/*"}});
         const buf = await res.arrayBuffer();
@@ -1946,8 +1956,6 @@
         const err = new Error("HTTP " + res.status + (detail ? " — " + detail : ""));
         err.status = res.status;
         lastError = err;
-        // A fully encoded path can return API_HANDLER_NOT_FOUND on some Crafty versions.
-        // Continue to the slash-separated variant before treating the file as missing.
       } catch (e) { lastError = e; }
     }
     throw lastError || new Error("Crafty file download failed");
@@ -2402,10 +2410,11 @@
     const clean = String(dirPath || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
     if (!clean) throw new Error("Empty Crafty mods directory path");
     const endpointBase = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/files/download/";
-    const endpoints = [
+    const endpoints = Array.from(new Set([
+      endpointBase + encodeCraftyDownloadPath(clean),
       endpointBase + encodeURIComponent(clean),
       endpointBase + clean.split("/").map(encodeURIComponent).join("/")
-    ];
+    ]));
     let lastError = null;
     for (const endpoint of endpoints) {
       try {
