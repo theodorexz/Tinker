@@ -4431,7 +4431,7 @@
           try{const advanced=body.querySelector("#advancedConfigText"); let output;
             if(advanced.dataset.dirty==="true") output=advanced.value;
             else {const next=JSON.parse(JSON.stringify(parsed.data)); body.querySelectorAll("[data-setting-idx]").forEach(c=>{if(c.type==='range')return; const idx=Number(c.dataset.settingIdx); if(c.dataset._skip)return;}); for(let i=0;i<entries.length;i++){const controls=body.querySelectorAll(`[data-setting-idx="${i}"]`); const c=Array.from(controls).find(x=>x.type!=="range"); if(c) setPathValue(next,entries[i].path,structuredValue(c,entries[i].value));} output=serializeStructured(parsed,next);}
-            await withServerMutationLock("save " + file.name, async function(cfg){const current=await readCraftyTextFile(cfg,file.path);const currentEpoch=Number(current.attributes?.modified_epoch||0);if(openedModifiedEpoch&&currentEpoch&&openedModifiedEpoch!==currentEpoch)throw new Error("This file changed after you opened it. Close it, refresh, and reopen before saving.");await writeCraftyTextFile(cfg,file.path,output,currentEpoch,true);}); state.textContent="Saved just now"; toast(file.name+" saved","ok");
+            await withServerMutationLock("save " + file.name, async function(cfg){const current=await readCraftyTextFile(cfg,file.path);const currentEpoch=Number(current.attributes?.modified_epoch||0);if(openedModifiedEpoch&&currentEpoch&&openedModifiedEpoch!==currentEpoch)throw new Error("This file changed after you opened it. Close it, refresh, and reopen before saving.");await writeCraftyTextFile(cfg,file.path,output,currentEpoch,false);}); state.textContent="Saved just now"; toast(file.name+" saved","ok");
           }catch(e){state.textContent="Save failed";toast("Couldn't save "+file.name+": "+e.message,"error");}
           finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}
         });
@@ -4582,7 +4582,7 @@
         const current = await readCraftyTextFile(cfg, "server.properties");
         let nextText = current.content;
         for (const change of changes) nextText = replaceServerPropertyText(nextText, change.key, change.value);
-        await writeCraftyTextFile(cfg, "server.properties", nextText, Number(current.attributes?.modified_epoch || 0), true);
+        await writeCraftyTextFile(cfg, "server.properties", nextText, Number(current.attributes?.modified_epoch || 0), false);
       });
       serverSettingsLoaded = false;
       await loadServerSettings(true);
