@@ -660,6 +660,8 @@
   .jsonhero-tab { border:1px solid var(--border); background:var(--bg-raised); color:var(--text-dim); padding:.4rem .7rem; border-radius:7px; font-size:.76rem; font-weight:650; }
   .jsonhero-tab.active { border-color:var(--brand-dim); background:var(--brand-wash); color:var(--brand-bright); }
   .jsonhero-search { width:100%; }
+  .jsonhero-tree-tools { display:flex; align-items:center; gap:.4rem; }
+  .jsonhero-tree-tools .muted { font-size:.72rem; }
   .jsonhero-tree { border:1px solid var(--border); border-radius:9px; background:var(--bg-raised); padding:.5rem; max-height:54vh; min-height:260px; overflow:auto; font-size:.78rem; }
   .jh-node { min-width:0; }
   .jh-node[hidden] { display:none !important; }
@@ -4865,7 +4867,7 @@
             (isJson ? 'JSON Hero-inspired tree navigation, value editing, search, and validated JSON text mode. The file stays on your Crafty server; its contents are not sent to a JSON viewing website.' : 'Direct text editing preserves comments and formatting in this config file.') +
           '</div></div>' +
           modeTabs +
-          (isJson && objectTreeAvailable ? '<input id="jsonHeroSearch" class="jsonhero-search" type="search" placeholder="Search keys, types, or values…"><div id="jsonHeroTreePanel" class="jsonhero-tree"></div>' : '') +
+          (isJson && objectTreeAvailable ? '<input id="jsonHeroSearch" class="jsonhero-search" type="search" placeholder="Search keys, types, or values…"><div class="jsonhero-tree-tools"><span class="muted">Tree view</span><span class="spacer"></span><button type="button" class="btn ghost small" id="jsonHeroExpandAll">Expand all</button><button type="button" class="btn ghost small" id="jsonHeroCollapseAll">Collapse all</button></div><div id="jsonHeroTreePanel" class="jsonhero-tree"></div>' : '') +
           '<div id="jsonHeroTextPanel" ' + (isJson && objectTreeAvailable ? 'hidden' : '') + '>' +
             '<textarea id="jsonHeroText" class="jsonhero-code" spellcheck="false" aria-label="Configuration file text"></textarea>' +
             (isJson ? '<div class="jsonhero-subtitle" id="jsonHeroValidation">' + (jsonValid ? 'Valid JSON.' : 'This file is not currently valid JSON. Edit it here to fix the syntax before saving.') + '</div>' : '') +
@@ -4935,6 +4937,10 @@
       }
 
       if (treePanel && objectTreeAvailable) renderTree();
+      const expandAllButton = body.querySelector("#jsonHeroExpandAll");
+      const collapseAllButton = body.querySelector("#jsonHeroCollapseAll");
+      if (expandAllButton) expandAllButton.addEventListener("click", () => treePanel.querySelectorAll("details").forEach(node => { node.open = true; }));
+      if (collapseAllButton) collapseAllButton.addEventListener("click", () => treePanel.querySelectorAll("details").forEach(node => { node.open = false; }));
       body.querySelectorAll("[data-jsonhero-mode]").forEach(button => {
         button.addEventListener("click", () => setMode(button.dataset.jsonheroMode));
       });
