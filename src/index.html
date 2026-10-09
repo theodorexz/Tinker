@@ -4783,6 +4783,20 @@
     });
   }
 
+  function setJsonHeroPathValue(root, path, value) {
+    if (!Array.isArray(path) || !path.length) return root;
+    let current = root;
+    for (let i = 0; i < path.length - 1; i++) {
+      const key = path[i];
+      if (current[key] === null || typeof current[key] !== "object") {
+        current[key] = typeof path[i + 1] === "number" ? [] : {};
+      }
+      current = current[key];
+    }
+    current[path[path.length - 1]] = value;
+    return root;
+  }
+
   function collectJsonHeroTreeData(tree, originalData) {
     const next = JSON.parse(JSON.stringify(originalData));
     const inputs = tree.querySelectorAll("[data-jh-path]");
@@ -4802,7 +4816,7 @@
         else if (/^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)) value = Number(raw);
         else value = raw;
       } else value = input.value;
-      setPathValue(next, path, value);
+      setJsonHeroPathValue(next, path, value);
     });
     return next;
   }
