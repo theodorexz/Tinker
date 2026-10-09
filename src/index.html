@@ -5252,11 +5252,11 @@
         linksEl.querySelectorAll(".external-link-btn").forEach(function(btn){btn.addEventListener("click",async function(){try{await openExternalUrl(btn.dataset.url);}catch(e){toast("Couldn’t open link: "+(e&&e.message?e.message:e),"error");}});});
         const descEl=body.querySelector("#modalDesc");
         const modrinthPageUrl="https://modrinth.com/mod/"+encodeURIComponent(p.slug||projectId);
-        const fallbackDescription=renderModrinthMarkdown(p.body||p.description||"");
+        const nativeDescription=renderModrinthMarkdown(p.body||p.description||"");
+        descEl.classList.add("modrinth-native-description");
         descEl.innerHTML=
-          '<div class="modrinth-iframe-note"><span>Embedded from Modrinth so its own layout, images, and HTML can render.</span><a href="#" data-external-url="'+escapeHtml(modrinthPageUrl)+'">Open full page ↗</a></div>'+
-          '<div class="modrinth-description-frame-wrap"><iframe class="modrinth-description-frame" src="'+escapeHtml(modrinthPageUrl)+'#description" title="'+escapeHtml(p.title)+' on Modrinth" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>'+
-          '<details class="modrinth-description-fallback"><summary>Use built-in description fallback</summary><div class="modrinth-fallback-content">'+fallbackDescription+'</div></details>';
+          '<div class="modrinth-iframe-note"><span>Modrinth description</span><a href="#" data-external-url="'+escapeHtml(modrinthPageUrl)+'">Open full page ↗</a></div>'+
+          (nativeDescription || '<p class="muted">No description was provided for this project.</p>');
         descEl.querySelectorAll("[data-external-url]").forEach(function(link){link.addEventListener("click",async function(e){e.preventDefault();try{await openExternalUrl(link.dataset.externalUrl);}catch(err){toast("Couldn’t open link: "+(err&&err.message?err.message:err),"error");}});});
         descEl.querySelectorAll("[data-description-image]").forEach(function(image){
           image.addEventListener("click",function(event){
