@@ -1,6 +1,7 @@
 name: Build and Release Tinker
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "app-v*"
