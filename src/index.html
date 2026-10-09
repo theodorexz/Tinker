@@ -854,7 +854,7 @@
       <div class="page-heading compact-heading">
         <div>
           <h1>Configuration</h1>
-          <p>Browse recognized configuration files and adjust supported settings with controls instead of editing raw text every time.</p>
+          <p>Manage core server settings and mod configuration files from separate sections.</p>
         </div>
         <div class="config-head-actions">
           <button class="btn ghost small" id="configRefreshBtn" type="button">&#8635; Refresh config</button>
@@ -4174,6 +4174,7 @@
   const SERVER_MUTATION_LOCK_FILE = ".tinker-operation-lock.json";
   let activeMutationLock = null;
   let mutationLockHeartbeat = null;
+  let localMutationQueue = Promise.resolve();
 
   function getTinkerClientId() {
     const key = "tinkerClientInstanceId";
@@ -4332,21 +4333,26 @@
     } catch (_) {}
   }
 
-  async function withServerMutationLock(action, fn) {
-    const cfg = getConfig();
-    if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) throw new Error("Crafty connection is not configured");
-    await requireServerStopped(action);
-    await checkModsFolderForChanges();
-    if (folderDirty) throw new Error("Files have been modified elsewhere, please refresh!");
-    await acquireServerMutationLock(cfg, action);
-    try {
+  function withServerMutationLock(action, fn) {
+    const run = async function() {
+      const cfg = getConfig();
+      if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) throw new Error("Crafty connection is not configured");
       await requireServerStopped(action);
       await checkModsFolderForChanges();
       if (folderDirty) throw new Error("Files have been modified elsewhere, please refresh!");
-      return await fn(cfg);
-    } finally {
-      await releaseServerMutationLock();
-    }
+      await acquireServerMutationLock(cfg, action);
+      try {
+        await requireServerStopped(action);
+        await checkModsFolderForChanges();
+        if (folderDirty) throw new Error("Files have been modified elsewhere, please refresh!");
+        return await fn(cfg);
+      } finally {
+        await releaseServerMutationLock();
+      }
+    };
+    const result = localMutationQueue.then(run, run);
+    localMutationQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   function parseSimpleProperties(text) {
@@ -4425,7 +4431,7 @@
           try{const advanced=body.querySelector("#advancedConfigText"); let output;
             if(advanced.dataset.dirty==="true") output=advanced.value;
             else {const next=JSON.parse(JSON.stringify(parsed.data)); body.querySelectorAll("[data-setting-idx]").forEach(c=>{if(c.type==='range')return; const idx=Number(c.dataset.settingIdx); if(c.dataset._skip)return;}); for(let i=0;i<entries.length;i++){const controls=body.querySelectorAll(`[data-setting-idx="${i}"]`); const c=Array.from(controls).find(x=>x.type!=="range"); if(c) setPathValue(next,entries[i].path,structuredValue(c,entries[i].value));} output=serializeStructured(parsed,next);}
-            await writeCraftyTextFile(getConfig(),file.path,output,openedModifiedEpoch||file.modifiedEpoch||0); state.textContent="Saved just now"; toast(file.name+" saved","ok");
+            await withServerMutationLock("save " + file.name, async function(cfg){const current=await readCraftyTextFile(cfg,file.path);const currentEpoch=Number(current.attributes?.modified_epoch||0);if(openedModifiedEpoch&&currentEpoch&&openedModifiedEpoch!==currentEpoch)throw new Error("This file changed after you opened it. Close it, refresh, and reopen before saving.");await writeCraftyTextFile(cfg,file.path,output,currentEpoch,true);}); state.textContent="Saved just now"; toast(file.name+" saved","ok");
           }catch(e){state.textContent="Save failed";toast("Couldn't save "+file.name+": "+e.message,"error");}
           finally{btn.disabled=folderDirty||serverState.running||!serverState.known;btn.textContent="Save changes";renderServerState();}
         });
@@ -4485,7 +4491,8 @@
       while (lines.length && lines[lines.length - 1] === "") lines.pop();
       lines.push(key + "=" + String(value));
     }
-    return lines.join("\n") + (String(original || "").endsWith("\n") ? "\n" : "");
+    const output = lines.join("\n");
+    return String(original || "").endsWith("\n") && !output.endsWith("\n") ? output + "\n" : output;
   }
 
   async function loadServerSettings(force) {
