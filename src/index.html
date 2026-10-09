@@ -374,6 +374,12 @@
   .modal-desc pre { overflow:auto; background:#0a0c0e; border:1px solid var(--border-soft); border-radius:6px; padding:.65rem .75rem; }
   .modal-desc pre code { border:0; padding:0; background:transparent; color:var(--text-dim); }
   .modal-desc a { color:var(--brand-bright); }
+  .modal-desc img.mod-description-image { display:block; width:auto; height:auto; max-width:100%; max-height:42vh; object-fit:contain; margin:.45rem auto; border-radius:6px; cursor:zoom-in; }
+  .modal-desc center, .modal-desc [align="center"] { display:block; text-align:center; }
+  .modal-desc [align="left"] { text-align:left; }
+  .modal-desc [align="right"] { text-align:right; }
+  .modal-desc table { display:block; max-width:100%; overflow-x:auto; border-collapse:collapse; margin:.6rem 0; }
+  .modal-desc th, .modal-desc td { border:1px solid var(--border-soft); padding:.3rem .45rem; }
   .mod-description-image-button { display:inline-flex; max-width:100%; margin:.45rem .2rem; padding:0; border:1px solid var(--border); border-radius:9px; background:var(--bg-raised); overflow:hidden; cursor:zoom-in; vertical-align:middle; transition:border-color .15s,transform .15s; }
   .mod-description-image-button:hover { border-color:var(--brand-bright); transform:translateY(-1px); }
   .mod-description-image { display:block; max-width:min(100%,640px); max-height:320px; width:auto; height:auto; object-fit:contain; }
@@ -4896,27 +4902,105 @@
     }, { wide: true });
   }
 
+  function sanitizeModrinthHtml(input) {
+    const parsed = new DOMParser().parseFromString(String(input || ""), "text/html");
+    const allowed = new Set([
+      "p","br","img","center","div","span","h1","h2","h3","h4","h5","h6",
+      "strong","b","em","i","u","s","del","strike","blockquote","ul","ol","li",
+      "code","pre","hr","a","table","thead","tbody","tfoot","tr","th","td",
+      "sup","sub","details","summary"
+    ]);
+    const blocked = new Set(["script","style","iframe","object","embed","svg","math","form","input","button","video","audio","link","meta"]);
+    const voidTags = new Set(["br","img","hr"]);
+
+    function safeWebUrl(value, httpsOnly) {
+      try {
+        const url = new URL(String(value || "").trim());
+        if (url.protocol !== "https:" && !(httpsOnly === false && url.protocol === "http:")) return "";
+        return url.href;
+      } catch (_) { return ""; }
+    }
+
+    function cleanNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.nodeValue || "");
+      if (node.nodeType !== Node.ELEMENT_NODE) return "";
+      const tag = String(node.tagName || "").toLowerCase();
+      if (blocked.has(tag)) return "";
+      const children = Array.from(node.childNodes).map(cleanNode).join("");
+      if (!allowed.has(tag)) return children;
+
+      const attrs = [];
+      const addAttr = (name, value) => attrs.push(" " + name + '="' + escapeHtml(value) + '"');
+
+      if (tag === "img") {
+        const src = safeWebUrl(node.getAttribute("src"), true);
+        if (!src) return "";
+        const alt = String(node.getAttribute("alt") || "").slice(0,500);
+        addAttr("src",src);
+        addAttr("alt",alt);
+        addAttr("class","mod-description-image");
+        addAttr("data-description-image",src);
+        addAttr("loading","lazy");
+        addAttr("decoding","async");
+        addAttr("referrerpolicy","no-referrer");
+        const width = Number.parseInt(node.getAttribute("width") || "",10);
+        const height = Number.parseInt(node.getAttribute("height") || "",10);
+        if (Number.isInteger(width) && width > 0 && width <= 2000) addAttr("width",String(width));
+        if (Number.isInteger(height) && height > 0 && height <= 1200) addAttr("height",String(height));
+      } else if (tag === "a") {
+        const href = safeWebUrl(node.getAttribute("data-external-url") || node.getAttribute("href"), false);
+        if (href) {
+          addAttr("href","#");
+          addAttr("data-external-url",href);
+          addAttr("rel","noopener noreferrer");
+        }
+      } else {
+        const align = String(node.getAttribute("align") || "").toLowerCase();
+        if (["left","right","center","justify"].includes(align)) addAttr("align",align);
+        if (tag === "th" || tag === "td") {
+          for (const attrName of ["colspan","rowspan"]) {
+            const value = Number.parseInt(node.getAttribute(attrName) || "",10);
+            if (Number.isInteger(value) && value >= 1 && value <= 20) addAttr(attrName,String(value));
+          }
+        }
+      }
+
+      const attrText = attrs.join("");
+      if (voidTags.has(tag)) return "<" + tag + attrText + ">";
+      return "<" + tag + attrText + ">" + children + "</" + tag + ">";
+    }
+
+    return Array.from(parsed.body.childNodes).map(cleanNode).join("");
+  }
+
   function renderInlineMarkdown(value) {
-    let out = escapeHtml(value);
+    const rawTags = [];
+    const rawTagPattern = /<\/?(?:br|img|center|div|span|p|h[1-6]|strong|b|em|i|u|s|del|strike|blockquote|ul|ol|li|code|pre|hr|a|table|thead|tbody|tfoot|tr|th|td|sup|sub|details|summary)\b[^>]*>/gi;
+    let source = String(value || "").replace(rawTagPattern, function(tag) {
+      const slot = "@@RAWTAG" + rawTags.length + "@@";
+      rawTags.push(tag);
+      return slot;
+    });
+
+    let out = escapeHtml(source);
     const codeSlots = [];
-    out = out.replace(/`([^`\n]+)`/g, function(_, code) {
+    out = out.replace(/\x60([^\x60\n]+)\x60/g, function(_, code) {
       const slot = "@@CODE" + codeSlots.length + "@@";
       codeSlots.push("<code>" + code + "</code>");
       return slot;
     });
-    // HTTPS Markdown images are rendered as contained, clickable previews.
-    // This string has already passed through escapeHtml, so URL/alt attributes are escaped.
-    out = out.replace(/!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g, function(_, alt, url) {
-      return '<button class="mod-description-image-button" type="button" data-description-image="' + url + '" data-description-alt="' + alt + '" aria-label="View description image: ' + alt + '" title="Click to enlarge"><img class="mod-description-image" src="' + url + '" alt="' + alt + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"></button>';
+    out = out.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(_, alt, url) {
+      return '<img class="mod-description-image" src="' + url + '" data-description-image="' + url + '" alt="' + alt + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
     });
     out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(_, label, url) {
-      return "<a href=\"#\" data-external-url=\"" + escapeHtml(url) + "\">" + label + "</a>";
+      return '<a href="#" data-external-url="' + url + '">' + label + '</a>';
     });
     out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     out = out.replace(/__([^_]+)__/g, "<strong>$1</strong>");
     out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
     out = out.replace(/_([^_\n]+)_/g, "<em>$1</em>");
-    return out.replace(/@@CODE(\d+)@@/g, function(_, i){ return codeSlots[Number(i)] || ""; });
+    out = out.replace(/@@CODE(\d+)@@/g, function(_, i){ return codeSlots[Number(i)] || ""; });
+    return out.replace(/@@RAWTAG(\d+)@@/g, function(_, i){ return rawTags[Number(i)] || ""; });
   }
 
   function renderModrinthMarkdown(markdown) {
@@ -4924,9 +5008,18 @@
     const out = [];
     let listType = "";
     function closeList(){ if(listType){ out.push("</"+listType+">"); listType=""; } }
+    const htmlBlockStart = /^\s*<\/?(?:center|div|p|table|thead|tbody|tfoot|tr|th|td|ul|ol|li|blockquote|details|summary|hr|br|img|h[1-6])\b/i;
+
     for(const rawLine of lines){
       const line=rawLine.trimEnd();
       if(!line.trim()){ closeList(); continue; }
+
+      if (htmlBlockStart.test(line)) {
+        closeList();
+        out.push(renderInlineMarkdown(line));
+        continue;
+      }
+
       let m=line.match(/^(#{1,4})\s+(.+)$/);
       if(m){ closeList(); const level=m[1].length+1; out.push("<h"+level+">"+renderInlineMarkdown(m[2])+"</h"+level+">"); continue; }
       m=line.match(/^>\s?(.*)$/);
@@ -4935,10 +5028,11 @@
       if(m){ if(listType!=="ul"){ closeList(); out.push("<ul>"); listType="ul"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
       m=line.match(/^\d+[.)]\s+(.+)$/);
       if(m){ if(listType!=="ol"){ closeList(); out.push("<ol>"); listType="ol"; } out.push("<li>"+renderInlineMarkdown(m[1])+"</li>"); continue; }
-      closeList(); out.push("<p>"+renderInlineMarkdown(line)+"</p>");
+      closeList();
+      out.push("<p>"+renderInlineMarkdown(line)+"</p>");
     }
     closeList();
-    return out.join("");
+    return sanitizeModrinthHtml(out.join(""));
   }
 
   function showDescriptionImage(url, alt) {
@@ -5009,9 +5103,10 @@
         const descEl=body.querySelector("#modalDesc");
         descEl.innerHTML=renderModrinthMarkdown(p.body||p.description||"");
         descEl.querySelectorAll("[data-external-url]").forEach(function(link){link.addEventListener("click",async function(e){e.preventDefault();try{await openExternalUrl(link.dataset.externalUrl);}catch(err){toast("Couldn’t open link: "+(err&&err.message?err.message:err),"error");}});});
-        descEl.querySelectorAll("[data-description-image]").forEach(function(button){
-          button.addEventListener("click",function(){
-            showDescriptionImage(button.dataset.descriptionImage,button.dataset.descriptionAlt||"");
+        descEl.querySelectorAll("[data-description-image]").forEach(function(image){
+          image.addEventListener("click",function(event){
+            event.preventDefault();
+            showDescriptionImage(image.dataset.descriptionImage || image.src,image.alt || "");
           });
         });
       });
