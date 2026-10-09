@@ -5501,7 +5501,7 @@
     const id=String(hit.project_id);
     if(Object.prototype.hasOwnProperty.call(browseDependencyCache,id)){
       const deps=browseDependencyCache[id];
-      holder.innerHTML=deps.length?"<strong>Dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
+      holder.innerHTML=deps.length?"<strong>Server dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
       return;
     }
     if(!browseDependencyPromises[id]){
@@ -5510,17 +5510,18 @@
           const res=await modrinthFetch("https://api.modrinth.com/v2/project/"+encodeURIComponent(id)+"/dependencies");
           if(!res.ok)throw new Error("HTTP "+res.status);
           const data=await res.json();
-          const deps=Array.isArray(data.projects)?data.projects.map(function(p){return String(p.title||p.slug||p.id||"");}).filter(Boolean):[];
-          browseDependencyCache[id]=deps; return deps;
+          const projects=Array.isArray(data.projects)?data.projects:[];
+          const compatible=projects.filter(isServerCompatibleModrinthProject);
+          browseDependencyCache[id]=compatible.map(project=>String(project.title||project.slug||project.id||"")).filter(Boolean);
+          return browseDependencyCache[id];
         }catch(_){browseDependencyCache[id]=[];return []; }
         finally{delete browseDependencyPromises[id];}
       })();
     }
     const deps=await browseDependencyPromises[id];
     if(!card.isConnected)return;
-    holder.innerHTML=deps.length?"<strong>Dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
+    holder.innerHTML=deps.length?"<strong>Server dependencies:</strong> "+deps.map(escapeHtml).join(", "):"";
   }
-
   function renderResults(hits, reset) {
     if (reset) els.grid.innerHTML = "";
     if (!hits.length && reset) {
