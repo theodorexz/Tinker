@@ -5481,8 +5481,8 @@
 
   function chooseModrinthJarFile(version) {
     const files = Array.isArray(version && version.files) ? version.files : [];
-    return files.find(file => file.primary && /\\.jar$/i.test(file.filename || ""))
-      || files.find(file => /\\.jar$/i.test(file.filename || ""))
+    return files.find(file => file.primary && /\.jar$/i.test(file.filename || ""))
+      || files.find(file => /\.jar$/i.test(file.filename || ""))
       || files.find(file => file.primary)
       || files[0]
       || null;
