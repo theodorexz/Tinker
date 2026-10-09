@@ -501,6 +501,7 @@
   .player-avatar { width:48px; height:48px; border-radius:8px; background:var(--bg-raised); border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--brand-bright); flex:none; overflow:hidden; image-rendering:pixelated; }
   .player-avatar img { width:100%; height:100%; object-fit:cover; image-rendering:pixelated; }
   .player-head-fallback { display:flex; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; letter-spacing:.02em; }
+  .player-head-fallback[hidden], .player-avatar img[hidden] { display:none !important; }
   .modal-head .player-avatar { width:56px; height:56px; }
   .player-card { cursor:pointer; } .player-card:hover { border-color:var(--brand-dim); background:var(--panel-2); }
   .player-main { min-width:0; flex:1; }
@@ -857,7 +858,7 @@
           <p>Manage core server settings and mod configuration files from separate sections.</p>
         </div>
         <div class="config-head-actions">
-          <button class="btn ghost small" id="configRefreshBtn" type="button">&#8635; Refresh config</button>
+          <button class="btn ghost small" id="configRefreshBtn" type="button">&#8635; Refresh settings</button>
           <span class="config-path-badge" id="configFolderPath">config/</span>
         </div>
       </div>
