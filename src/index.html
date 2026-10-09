@@ -1708,6 +1708,10 @@
 
   // ---------- server list ----------
   async function loadServers(cfg) {
+    serverSettingsLoaded = false;
+    configFilesLoaded = false;
+    configFiles = [];
+    configSelectedModId = "";
     if (!cfg.craftyUrl || !cfg.apiToken) { connectionVerified = false; setTabsUnlocked(false); els.testResult.textContent = "fill in URL and token first"; return; }
     els.testResult.textContent = "loading servers…";
     setConnPill("", "connecting…");
@@ -1797,6 +1801,10 @@
   els.refreshBtn.addEventListener("click", () => loadServers(getConfig()));
   els.serverId.addEventListener("change", async () => {
     connectionVerified = Boolean(els.serverId.value);
+    serverSettingsLoaded = false;
+    configFilesLoaded = false;
+    configFiles = [];
+    configSelectedModId = "";
     installedMods = [];
     hasLiveScan = false;
     latestCache = {};
@@ -4469,11 +4477,9 @@
     });
     const pathBadge = document.getElementById("configFolderPath");
     if (pathBadge) pathBadge.hidden = target !== "mods";
-    if (target === "server") loadServerSettings();
-    else {
-      renderConfigurationMods();
-      if (!configFilesLoaded) loadConfigFiles();
-    }
+    if (target === "server") return loadServerSettings();
+    renderConfigurationMods();
+    return configFilesLoaded ? Promise.resolve() : loadConfigFiles();
   }
 
   function replaceServerPropertyText(original, key, value) {
@@ -4635,9 +4641,8 @@
   function openConfigurationForMod(mod) {
     if (!mod) return;
     switchTab("configuration");
-    switchConfigView("mods");
     configSelectedModId = String(mod.projectId || mod.filename);
-    loadConfigFiles().then(() => selectConfigMod(mod));
+    Promise.resolve(switchConfigView("mods")).then(() => selectConfigMod(mod));
   }
 
   document.querySelectorAll("[data-config-view]").forEach(btn => btn.addEventListener("click", () => switchConfigView(btn.dataset.configView)));
