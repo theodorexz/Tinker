@@ -4071,6 +4071,8 @@
           if(status) status.textContent="Sync failed: "+(e?.message||e);
           toast("Couldn’t sync player data: "+(e?.message||e),"error");
         }finally{
+          btn.disabled=false;
+          if(btn.textContent==="Synced to Crafty" || btn.textContent==="No changes to sync") btn.textContent="Edit again & sync on close";
           renderServerState();
         }
       });
