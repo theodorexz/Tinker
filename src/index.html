@@ -3986,25 +3986,19 @@
     return true;
   }
 
-  const SERVER_MUTATION_LOCK_DIR = ".tinker-operation-lock";
-  const SERVER_MUTATION_LOCK_STATE = SERVER_MUTATION_LOCK_DIR + "/state.json";
+  const SERVER_MUTATION_LOCK_FILE = ".tinker-operation-lock.json";
   let activeMutationLock = null;
   let mutationLockHeartbeat = null;
 
   function getTinkerClientId() {
     const key = "tinkerClientInstanceId";
     try {
-      let installation = localStorage.getItem("tinkerInstallationId");
-      if (!installation) {
-        installation = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
-        localStorage.setItem("tinkerInstallationId", installation);
-      }
       let session = sessionStorage.getItem(key);
       if (!session) {
         session = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
         sessionStorage.setItem(key, session);
       }
-      return installation + "-" + session;
+      return session;
     } catch (_) {
       return "client-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     }
@@ -4022,12 +4016,15 @@
 
   async function readMutationLock(cfg) {
     try {
-      const buffer = await downloadCraftyRawFileBuffer(cfg, SERVER_MUTATION_LOCK_STATE);
-      const raw = new TextDecoder().decode(new Uint8Array(buffer));
+      const result = await readCraftyTextFile(cfg, SERVER_MUTATION_LOCK_FILE);
+      const raw = String(result.content || "").trim();
+      if (!raw) return null;
       const state = JSON.parse(raw);
       return state && typeof state === "object" ? state : null;
     } catch (e) {
-      if (Number(e?.status) === 404) return null;
+      const message = String(e?.message || e);
+      if (/HTTP 404|not found|no such file|ENOENT/i.test(message)) return null;
+      if (/invalid JSON|Unexpected end|JSON at position 0/i.test(message)) return null;
       throw e;
     }
   }
@@ -4046,20 +4043,24 @@
     return res.status === 200 || res.status === 404;
   }
 
-  async function renewMutationLock() {
-    const lock = activeMutationLock;
-    if (!lock) return;
+  async function writeMutationLockState(lock, expiresAt) {
     const state = {
       version:1,
       clientId:lock.clientId,
       leaseId:lock.leaseId,
       action:lock.action,
       startedAt:lock.startedAt,
-      expiresAt:new Date(Date.now() + 30000).toISOString()
+      expiresAt
     };
+    await writeCraftyTextFile(lock.cfg, SERVER_MUTATION_LOCK_FILE, JSON.stringify(state, null, 2), undefined, true);
+    lock.expiresAt = expiresAt;
+  }
+
+  async function renewMutationLock() {
+    const lock = activeMutationLock;
+    if (!lock) return;
     try {
-      await writeCraftyTextFile(lock.cfg, SERVER_MUTATION_LOCK_STATE, JSON.stringify(state, null, 2), undefined, true);
-      lock.expiresAt = state.expiresAt;
+      await writeMutationLockState(lock, new Date(Date.now() + 30000).toISOString());
     } catch (_) {}
   }
 
@@ -4067,55 +4068,67 @@
     if (activeMutationLock) return activeMutationLock;
     const clientId = getTinkerClientId();
 
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const created = await createCraftyFileEntry(cfg, ".", SERVER_MUTATION_LOCK_DIR, true);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const created = await createCraftyFileEntry(cfg, ".", SERVER_MUTATION_LOCK_FILE, false);
       if (created.status >= 200 && created.status < 300) {
+        const leaseId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
+        const lock = {
+          cfg:{...cfg},
+          clientId,
+          leaseId,
+          action:String(action || "change server files"),
+          startedAt:new Date().toISOString(),
+          expiresAt:new Date(Date.now() + 30000).toISOString()
+        };
         try {
-          const stateFile = await createCraftyFileEntry(cfg, SERVER_MUTATION_LOCK_DIR, "state.json", false);
-          if (!(stateFile.status >= 200 && stateFile.status < 300)) {
-            await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR);
-            throw new Error("Could not initialize the Tinker server operation lock.");
-          }
-          const leaseId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(16).slice(2));
-          const state = {
-            version:1,
-            clientId,
-            leaseId,
-            action:String(action || "change server files"),
-            startedAt:new Date().toISOString(),
-            expiresAt:new Date(Date.now() + 30000).toISOString()
-          };
-          await writeCraftyTextFile(cfg, SERVER_MUTATION_LOCK_STATE, JSON.stringify(state, null, 2), undefined, true);
-          activeMutationLock = {cfg:{...cfg}, clientId, leaseId, action:state.action, startedAt:state.startedAt, expiresAt:state.expiresAt};
+          await writeMutationLockState(lock, lock.expiresAt);
+          activeMutationLock = lock;
           if (mutationLockHeartbeat) clearInterval(mutationLockHeartbeat);
           mutationLockHeartbeat = setInterval(() => { renewMutationLock().catch(() => {}); }, 10000);
           return activeMutationLock;
         } catch (e) {
-          try { await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR); } catch (_) {}
-          throw e;
+          try { await deleteServerPath(cfg, SERVER_MUTATION_LOCK_FILE); } catch (_) {}
+          throw new Error("Tinker created the shared server lock but couldn't write its state: " + (e?.message || e));
         }
       }
 
-      if (created.status === 400 && /FILE EXISTS|already exists/i.test(String(created.raw || ""))) {
+      const existsError = /FILE[_ ]EXISTS|file.*exists|already exists|exists.*file/i.test(String(created.raw || ""));
+      if (created.status === 400 && existsError) {
         let existing = null;
-        try { existing = await readMutationLock(cfg); } catch (_) {}
+        let readError = null;
+        try { existing = await readMutationLock(cfg); } catch (e) { readError = e; }
+
         if (!existing) {
-          await new Promise(resolve => setTimeout(resolve, 700));
+          // The owner may have created the file but not written the lease yet.
+          await new Promise(resolve => setTimeout(resolve, 500 + attempt * 250));
           continue;
         }
+
         const expires = Date.parse(existing.expiresAt || "");
-        if (Number.isFinite(expires) && expires <= Date.now()) {
-          try { await deleteServerPath(cfg, SERVER_MUTATION_LOCK_DIR); } catch (_) {}
+        if (!Number.isFinite(expires) || expires <= Date.now()) {
+          try {
+            await deleteServerPath(cfg, SERVER_MUTATION_LOCK_FILE);
+          } catch (e) {
+            throw new Error("A stale Tinker lock expired, but Crafty couldn't remove it. Delete " + SERVER_MUTATION_LOCK_FILE + " from the server root in Crafty's file manager, then retry.");
+          }
           await new Promise(resolve => setTimeout(resolve, 250));
           continue;
         }
-        throw new Error("Another Tinker user is currently " + String(existing.action || "changing this server") + ". Please wait for them to finish, then try again.");
+
+        throw new Error("Another Tinker window is currently " + String(existing.action || "changing this server") + ". The shared lock expires in about " + Math.max(1, Math.ceil((expires - Date.now()) / 1000)) + " seconds if that window closes unexpectedly.");
       }
 
-      throw new Error("Could not create the Tinker server operation lock (HTTP " + created.status + ").");
+      throw new Error("Crafty couldn't create Tinker's shared operation lock (HTTP " + created.status + ")" + (created.raw ? ": " + String(created.raw).replace(/\s+/g," ").slice(0,220) : ""));
     }
 
-    throw new Error("Another Tinker user is currently changing this server. Please wait a moment and try again.");
+    let readErrorText = "";
+    try {
+      const state = await readMutationLock(cfg);
+      if (state) readErrorText = " Current lock action: " + String(state.action || "unknown") + ".";
+    } catch (e) {
+      readErrorText = " Lock state could not be read: " + String(e?.message || e).slice(0,180);
+    }
+    throw new Error("A shared Tinker lock file already exists but isn't readable yet. Wait a moment and retry." + readErrorText + " Legacy lock directories are ignored by this version.");
   }
 
   async function releaseServerMutationLock() {
@@ -4129,7 +4142,7 @@
     try {
       const current = await readMutationLock(lock.cfg);
       if (current && current.clientId === lock.clientId && current.leaseId === lock.leaseId) {
-        await deleteServerPath(lock.cfg, SERVER_MUTATION_LOCK_DIR);
+        await deleteServerPath(lock.cfg, SERVER_MUTATION_LOCK_FILE);
       }
     } catch (_) {}
   }
