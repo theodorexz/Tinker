@@ -3867,7 +3867,7 @@
   // ---------- Players tab (work in progress) ----------
   let playersData=[];
 
-  const PLAYER_SKIN_CACHE_KEY = "tinkerPlayerSkinUuidCacheV1";
+  const PLAYER_SKIN_CACHE_KEY = "tinkerPlayerSkinUuidCacheV2";
 
   function playerAvatarMarkup(player) {
     const name = String(player?.name || "");
@@ -3882,36 +3882,61 @@
     } catch (_) { return {}; }
   }
 
-  async function resolveOfficialPlayerSkinUuid(uuid) {
-    const key = String(uuid || "").replace(/-/g,"").toLowerCase();
-    if (!/^[0-9a-f]{32}$/.test(key)) return "";
-    const cache = readPlayerSkinCache();
-    if (Object.prototype.hasOwnProperty.call(cache,key)) return String(cache[key] || "");
+  function profileHasSkin(profile) {
+    const textureProperty = (Array.isArray(profile?.properties) ? profile.properties : []).find(p => p && p.name === "textures");
+    if (!textureProperty?.value) return false;
+    try {
+      const decoded = JSON.parse(atob(textureProperty.value));
+      return Boolean(decoded?.textures?.SKIN?.url);
+    } catch (_) { return false; }
+  }
 
-    const url = "https://sessionserver.mojang.com/session/minecraft/profile/" + encodeURIComponent(key);
+  async function getOfficialProfileByUuid(uuid) {
+    const clean = String(uuid || "").replace(/-/g,"").toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(clean)) return null;
+    const url = "https://sessionserver.mojang.com/session/minecraft/profile/" + encodeURIComponent(clean);
     const res = nativeBridgeAvailable()
       ? await nativeHttpFetch(url,{method:"GET",headers:{"Accept":"application/json"}},false)
       : await fetch(url,{method:"GET",headers:{"Accept":"application/json"},credentials:"omit"});
-    if (res.status === 204 || res.status === 404) {
-      cache[key] = "";
-      try { localStorage.setItem(PLAYER_SKIN_CACHE_KEY,JSON.stringify(cache)); } catch (_) {}
-      return "";
-    }
+    if (res.status === 204 || res.status === 404) return null;
     if (!res.ok) throw new Error("Mojang profile lookup returned HTTP " + res.status);
-
     const profile = await res.json();
-    const id = String(profile.id || "").replace(/-/g,"").toLowerCase();
-    const textureProperty = (Array.isArray(profile.properties) ? profile.properties : []).find(p => p && p.name === "textures");
-    let hasSkin = false;
-    if (textureProperty && textureProperty.value) {
-      try {
-        const decoded = JSON.parse(atob(textureProperty.value));
-        hasSkin = Boolean(decoded?.textures?.SKIN?.url);
-      } catch (_) {}
+    return profileHasSkin(profile) ? profile : null;
+  }
+
+  async function getOfficialProfileByName(name) {
+    const cleanName = String(name || "").trim();
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(cleanName) || /^Player /i.test(cleanName)) return null;
+    const url = "https://api.mojang.com/users/profiles/minecraft/" + encodeURIComponent(cleanName);
+    const res = nativeBridgeAvailable()
+      ? await nativeHttpFetch(url,{method:"GET",headers:{"Accept":"application/json"}},false)
+      : await fetch(url,{method:"GET",headers:{"Accept":"application/json"},credentials:"omit"});
+    if (res.status === 204 || res.status === 404) return null;
+    if (!res.ok) throw new Error("Minecraft username lookup returned HTTP " + res.status);
+    const profile = await res.json();
+    return await getOfficialProfileByUuid(profile.id);
+  }
+
+  async function resolveOfficialPlayerSkinUuid(uuid, playerName) {
+    const key = String(uuid || "").replace(/-/g,"").toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(key)) return "";
+    const cache = readPlayerSkinCache();
+    if (cache[key]) return String(cache[key]);
+
+    let profile = null;
+    try { profile = await getOfficialProfileByUuid(key); } catch (_) {}
+    // Offline-mode and proxy setups can store a generated UUID in playerdata.
+    // In that case, resolve the known username to its official profile instead.
+    if (!profile && playerName) {
+      try { profile = await getOfficialProfileByName(playerName); } catch (_) {}
     }
-    const resolved = hasSkin && /^[0-9a-f]{32}$/.test(id) ? id : "";
-    cache[key] = resolved;
-    try { localStorage.setItem(PLAYER_SKIN_CACHE_KEY,JSON.stringify(cache)); } catch (_) {}
+
+    const id = String(profile?.id || "").replace(/-/g,"").toLowerCase();
+    const resolved = profile && /^[0-9a-f]{32}$/.test(id) ? id : "";
+    if (resolved) {
+      cache[key] = resolved;
+      try { localStorage.setItem(PLAYER_SKIN_CACHE_KEY,JSON.stringify(cache)); } catch (_) {}
+    }
     return resolved;
   }
 
@@ -3921,7 +3946,7 @@
     const fallback = container.querySelector(".player-head-fallback");
     if (!img || !fallback) return;
     try {
-      const skinUuid = await resolveOfficialPlayerSkinUuid(player.uuid);
+      const skinUuid = await resolveOfficialPlayerSkinUuid(player.uuid, player.name);
       if (!skinUuid || !container.isConnected) return;
       img.onload = function(){ img.hidden = false; fallback.hidden = true; };
       img.onerror = function(){ img.hidden = true; fallback.hidden = false; };
@@ -3931,6 +3956,7 @@
       fallback.hidden = false;
     }
   }
+
 
   async function downloadPlayerDataBuffer(cfg, player) {
     try {
