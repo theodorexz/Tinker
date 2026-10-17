@@ -4869,7 +4869,7 @@
           modeTabs +
           (isJson && objectTreeAvailable ? '<input id="jsonHeroSearch" class="jsonhero-search" type="search" placeholder="Search keys, types, or values…"><div class="jsonhero-tree-tools"><span class="muted">Tree view</span><span class="spacer"></span><button type="button" class="btn ghost small" id="jsonHeroExpandAll">Expand all</button><button type="button" class="btn ghost small" id="jsonHeroCollapseAll">Collapse all</button></div><div id="jsonHeroTreePanel" class="jsonhero-tree"></div>' : '') +
           '<div id="jsonHeroTextPanel" ' + (isJson && objectTreeAvailable ? 'hidden' : '') + '>' +
-            '<textarea id="jsonHeroText" class="jsonhero-code" spellcheck="false" aria-label="Configuration file text"></textarea>' +
+            '<textarea id="jsonHeroText" class="jsonhero-code" spellcheck="false" aria-label="Configuration file text" style="width: 720px; height: 530px;"></textarea>' +
             (isJson ? '<div class="jsonhero-subtitle" id="jsonHeroValidation">' + (jsonValid ? 'Valid JSON.' : 'This file is not currently valid JSON. Edit it here to fix the syntax before saving.') + '</div>' : '') +
           '</div>' +
           '<div class="jsonhero-footer"><button class="btn primary" id="jsonHeroSaveBtn" type="button">Save changes</button><span class="jsonhero-status" id="jsonHeroStatus">Loaded</span><button class="btn ghost small" id="jsonHeroCloseBtn" type="button">Close</button></div>' +
