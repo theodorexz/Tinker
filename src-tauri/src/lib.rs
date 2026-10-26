@@ -226,6 +226,71 @@ fn likely_nbt_explorer_paths() -> Vec<PathBuf> {
 }
 
 #[tauri::command]
+fn save_temp_file(filename: String, data_base64: String) -> Result<String, String> {
+    let data = BASE64
+        .decode(data_base64)
+        .map_err(|e| format!("Invalid export encoding: {e}"))?;
+    let raw_name = PathBuf::from(&filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("tinker-export.bin");
+    let path = PathBuf::from(raw_name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("tinker-export");
+    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("bin");
+    let safe_stem: String = stem.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .collect();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Could not get system time: {e}"))?
+        .as_millis();
+    let export_root = std::env::temp_dir().join("Tinker").join("exports");
+    std::fs::create_dir_all(&export_root)
+        .map_err(|e| format!("Could not create Tinker export folder: {e}"))?;
+    let destination = export_root.join(format!("{safe_stem}-{stamp}.{extension}"));
+    std::fs::write(&destination, data)
+        .map_err(|e| format!("Could not write export file: {e}"))?;
+    Ok(destination.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    let target = PathBuf::from(path.trim());
+    if !target.exists() {
+        return Err("The file or folder no longer exists on this device.".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(format!("/select,{}", target.display()));
+        command.creation_flags(CREATE_NO_WINDOW);
+        command.spawn().map_err(|e| format!("Could not open File Explorer: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R").arg(&target)
+            .spawn().map_err(|e| format!("Could not reveal file in Finder: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let folder = if target.is_dir() { target.clone() } else { target.parent().unwrap_or(&target).to_path_buf() };
+        std::process::Command::new("xdg-open")
+            .arg(folder)
+            .spawn().map_err(|e| format!("Could not open the export folder: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err("Revealing files is not supported on this platform.".to_string())
+    }
+}
+
+#[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let safe = url.trim();
     if !(safe.starts_with("https://") || safe.starts_with("http://")) {
@@ -347,6 +412,8 @@ pub fn run() {
             crafty_request,
             ping,
             inflate_raw_bytes,
+            save_temp_file,
+            reveal_path,
             load_connection_config,
             save_connection_config,
             check_for_update,
