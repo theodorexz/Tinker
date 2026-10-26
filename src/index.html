@@ -1633,6 +1633,27 @@
 
   function openTeamSetupModal(cfg) {
     return new Promise(resolve => {
+      let resolved = false;
+      const cleanup = () => {
+        els.modalClose.removeEventListener("click", dismiss);
+        els.modalOverlay.removeEventListener("click", dismissOverlay);
+      };
+      const finish = value => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(value);
+      };
+      const dismiss = () => {
+        try { localStorage.setItem("tinkerTeamSetupSkipped:" + registryKey(cfg), "1"); } catch (_) {}
+        teamState = {version:1,enabled:false,users:[],audit:[],modAttribution:{}};
+        teamStateServerKey = registryKey(cfg);
+        finishTeamSession(null);
+        finish(false);
+      };
+      const dismissOverlay = event => { if (event.target === els.modalOverlay) dismiss(); };
+      els.modalClose.addEventListener("click", dismiss);
+      els.modalOverlay.addEventListener("click", dismissOverlay);
       openModal(function(body) {
         body.innerHTML =
           '<h3>Set up Tinker team accounts?</h3>' +
@@ -1645,12 +1666,8 @@
           '<div class="server-settings-actions"><button class="btn primary" type="submit">Create admin account</button><button class="btn ghost" id="teamSkipSetupBtn" type="button">Continue without accounts</button></div>' +
           '<div class="error-text" id="teamSetupError"></div></form>';
         body.querySelector("#teamSkipSetupBtn").addEventListener("click",function(){
-          try { localStorage.setItem("tinkerTeamSetupSkipped:" + registryKey(cfg),"1"); } catch (_) {}
-          teamState = {version:1,enabled:false,users:[],audit:[],modAttribution:{}};
-          teamStateServerKey = registryKey(cfg);
-          finishTeamSession(null);
+          dismiss();
           closeModal();
-          resolve(false);
         });
         body.querySelector("#teamSetupForm").addEventListener("submit",async function(event){
           event.preventDefault();
@@ -1660,7 +1677,7 @@
           try {
             await createFirstTeamAdmin(cfg,body.querySelector("#teamSetupUsername").value,body.querySelector("#teamSetupPassword").value,body.querySelector("#teamSetupMinecraftName").value);
             closeModal();
-            resolve(true);
+            finish(true);
           } catch(e) {
             err.textContent = e?.message || String(e);
             button.disabled = false;
@@ -1672,6 +1689,26 @@
 
   function openTeamLoginModal(cfg) {
     return new Promise(resolve => {
+      let resolved = false;
+      const cleanup = () => {
+        els.modalClose.removeEventListener("click", dismiss);
+        els.modalOverlay.removeEventListener("click", dismissOverlay);
+      };
+      const finish = value => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(value);
+      };
+      const dismiss = () => {
+        activeTeamUser = null;
+        teamAccessPending = true;
+        setTabsUnlocked(false);
+        finish(false);
+      };
+      const dismissOverlay = event => { if (event.target === els.modalOverlay) dismiss(); };
+      els.modalClose.addEventListener("click", dismiss);
+      els.modalOverlay.addEventListener("click", dismissOverlay);
       openModal(function(body) {
         body.innerHTML =
           '<h3>Sign in to Tinker</h3><p class="muted">This Crafty server has shared Tinker accounts enabled.</p>' +
@@ -1704,7 +1741,7 @@
             teamStateServerKey=registryKey(cfg);
             finishTeamSession(user);
             closeModal();
-            resolve(true);
+            finish(true);
             recordAudit("auth.login","Signed in to Tinker.",true).catch(()=>{});
           }catch(e){
             err.textContent=e?.message||"Sign in failed.";
