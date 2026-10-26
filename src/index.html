@@ -1038,6 +1038,111 @@
       </div>
       </section>
     </section>
+
+    <section class="tab-panel" id="tabTerminal" data-panel="terminal">
+      <div class="page-heading compact-heading">
+        <div><h1>Terminal</h1><p>Send commands to the server console. Start/stop actions and submitted commands are recorded in the audit log.</p></div>
+        <div class="server-action-buttons">
+          <button class="btn primary" id="serverStartBtn" type="button">▶ Start</button>
+          <button class="btn danger" id="serverStopBtn" type="button">■ Stop</button>
+          <button class="btn ghost small" id="terminalRefreshBtn" type="button">Refresh log</button>
+        </div>
+      </div>
+      <div class="terminal-status" id="terminalStatus">Connect to Crafty to use server controls.</div>
+      <div class="terminal-console" id="terminalOutput" role="log" aria-live="polite"><div class="terminal-muted">Console output appears here when Crafty returns logs.</div></div>
+      <form class="terminal-command-bar" id="terminalCommandForm">
+        <label for="terminalCommandInput">Console command</label>
+        <div class="terminal-command-row">
+          <span class="terminal-prompt">›</span>
+          <input id="terminalCommandInput" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. list, say Hello, whitelist list" aria-autocomplete="list" aria-controls="terminalSuggestions">
+          <button class="btn primary" type="submit" id="terminalSendBtn">Send</button>
+        </div>
+        <div class="terminal-suggestions" id="terminalSuggestions" hidden></div>
+        <p class="muted">Type to see command templates. Press ↑ / ↓ to choose one, Tab to fill it, or Enter to send the command.</p>
+      </form>
+    </section>
+
+    <section class="tab-panel" id="tabWorld" data-panel="world">
+      <div class="page-heading compact-heading">
+        <div><h1>World Map</h1><p>Browse region files and export a world or region for external map tools.</p></div>
+        <button class="btn ghost small" id="worldRefreshBtn" type="button">↻ Refresh regions</button>
+      </div>
+      <div class="wip-warning"><strong>Back up first.</strong> MCA Selector can permanently delete or alter chunks. Tinker exports files for external editing; review backups before modifying a world.</div>
+      <div class="world-tool-card">
+        <div><h2>MCA Selector</h2><p>Official releases for Windows, macOS Apple Silicon/Intel, and Linux.</p></div>
+        <button class="btn" type="button" id="mcaSelectorDownloadBtn">Open official downloads ↗</button>
+      </div>
+      <div class="world-toolbar">
+        <label for="worldDimensionSelect">Dimension</label>
+        <select id="worldDimensionSelect">
+          <option value="world/region">Overworld</option>
+          <option value="world/DIM-1/region">Nether (legacy)</option>
+          <option value="world/DIM1/region">End (legacy)</option>
+          <option value="world/dimensions/minecraft/overworld/region">Overworld (26.x layout)</option>
+          <option value="world/dimensions/minecraft/the_nether/region">Nether (26.x layout)</option>
+          <option value="world/dimensions/minecraft/the_end/region">End (26.x layout)</option>
+        </select>
+        <span class="muted" id="worldRegionCount">Not loaded</span>
+      </div>
+      <div class="world-region-list" id="worldRegionList"><div class="empty-state small">Connect to Crafty and refresh to list .mca region files.</div></div>
+      <div class="world-export-actions">
+        <button class="btn primary" id="worldDownloadSelectedBtn" type="button" disabled>Download selected region</button>
+        <button class="btn" id="worldDownloadArchiveBtn" type="button">Export dimension as ZIP</button>
+        <span class="muted" id="worldExportStatus"></span>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tabAdmin" data-panel="admin">
+      <div class="page-heading compact-heading">
+        <div><h1>Admin</h1><p>Manage shared Tinker accounts, Minecraft profile names, permissions, and audit history.</p></div>
+        <span class="connection-ready-badge" id="teamModeBadge">Team accounts not enabled</span>
+      </div>
+      <div class="wip-warning"><strong>Important:</strong> these accounts gate features inside Tinker. They do not replace Crafty's own API permissions. Anyone who has the Crafty API token can still use Crafty directly, so also restrict Crafty tokens and accounts.</div>
+      <div class="admin-layout">
+        <section class="server-settings-card">
+          <h2>Create user</h2>
+          <p class="card-help">Passwords are stored as salted PBKDF2 hashes, not plain text. Minecraft usernames help resolve player skins.</p>
+          <form id="adminCreateUserForm">
+            <div class="server-settings-fields">
+              <div class="server-setting"><label for="adminNewUsername">Username</label><input id="adminNewUsername" required minlength="3" maxlength="32" autocomplete="off"></div>
+              <div class="server-setting"><label for="adminNewMinecraftName">Minecraft username (optional)</label><input id="adminNewMinecraftName" maxlength="16" autocomplete="off" placeholder="Steve"></div>
+              <div class="server-setting wide"><label for="adminNewPassword">Temporary password</label><input id="adminNewPassword" type="password" required minlength="8" autocomplete="new-password"></div>
+            </div>
+            <div class="permission-grid" id="adminNewPermissions"></div>
+            <div class="server-settings-actions"><button class="btn primary" type="submit">Create user</button><span class="muted" id="adminCreateUserStatus"></span></div>
+          </form>
+        </section>
+        <section class="server-settings-card">
+          <h2>Users</h2>
+          <div id="adminUserList" class="admin-user-list"><div class="empty-state small">Set up shared team accounts to manage users.</div></div>
+        </section>
+        <section class="server-settings-card server-settings-wide">
+          <div class="admin-audit-header"><div><h2>Audit log</h2><p class="card-help">Recent Tinker actions on this Crafty server. Secrets and passwords are never recorded.</p></div><button class="btn ghost small" id="auditRefreshBtn" type="button">Refresh</button></div>
+          <div id="adminAuditList" class="admin-audit-list"><div class="empty-state small">No audit events loaded.</div></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tabSettings" data-panel="settings">
+      <div class="page-heading compact-heading"><div><h1>Settings</h1><p>Appearance preferences can follow your team account between devices.</p></div></div>
+      <section class="server-settings-card settings-preferences-card">
+        <h2>Appearance</h2>
+        <div class="server-settings-fields">
+          <div class="server-setting"><label for="themeSelect">Theme</label><select id="themeSelect"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Use device setting</option></select></div>
+          <div class="server-setting"><label class="filters-row"><input type="checkbox" id="syncPreferencesToggle" style="width:auto" checked> Sync preference to my Tinker account</label></div>
+        </div>
+        <div class="server-settings-actions"><button class="btn primary" id="savePreferencesBtn" type="button">Save preferences</button><span class="muted" id="preferencesStatus"></span></div>
+      </section>
+      <section class="server-settings-card" style="margin-top:.85rem;">
+        <h2>External tools</h2><p class="card-help">Download tools from their official project pages.</p>
+        <div class="tool-download-links"><button class="link-btn" id="nbtExplorerDownloadBtn" type="button">NBTExplorer GitHub ↗</button><button class="link-btn" id="mcaSelectorSettingsLink" type="button">MCA Selector official downloads ↗</button></div>
+      </section>
+      <section class="server-settings-card" style="margin-top:.85rem;">
+        <h2>Connection & privacy</h2><p class="card-help">The Crafty connection is stored on this device. Team settings/preferences are stored in files on the configured Crafty server.</p>
+        <button class="btn ghost small" id="settingsReloginBtn" type="button">Sign out / switch user</button>
+      </section>
+    </section>
+
   </main>
 </div>
 
