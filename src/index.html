@@ -1441,7 +1441,12 @@
       await writeTeamStateToServer(cfg, latest);
       teamState = latest;
       if (activeTeamUser) {
-        activeTeamUser = teamState.users.find(u => u.username === activeTeamUser.username && u.enabled !== false) || null;
+        const previousUsername = activeTeamUser.username;
+        activeTeamUser = teamState.users.find(u => u.username === previousUsername && u.enabled !== false) || null;
+        if (!activeTeamUser) {
+          teamAccessPending = true;
+          setTabsUnlocked(false);
+        }
       }
       return output;
     });
