@@ -6812,6 +6812,191 @@
     renderServerState();
   }
 
+  const TERMINAL_COMMAND_TEMPLATES = [
+    "help","list","say ","time set day","time set night","weather clear","weather rain",
+    "difficulty peaceful","difficulty easy","difficulty normal","difficulty hard",
+    "gamemode survival ","gamemode creative ","gamemode adventure ","gamemode spectator ",
+    "whitelist list","whitelist add ","whitelist remove ","whitelist on","whitelist off",
+    "op ","deop ","kick ","ban ","pardon ","tp ","give ","effect give ","gamerule keepInventory true",
+    "save-all","save-off","save-on","reload"
+  ];
+
+  function setTerminalStatus(message, isError) {
+    const el = document.getElementById("terminalStatus");
+    if (!el) return;
+    el.textContent = String(message || "");
+    el.style.color = isError ? "var(--rust)" : "var(--text-faint)";
+  }
+
+  function terminalWriteLine(message, kind) {
+    const el = document.getElementById("terminalOutput");
+    if (!el) return;
+    const line = document.createElement("div");
+    line.className = "terminal-log-line";
+    const time = document.createElement("span");
+    time.className = "terminal-log-time";
+    time.textContent = new Date().toLocaleTimeString();
+    const content = document.createElement("span");
+    content.textContent = String(message || "");
+    if (kind === "error") content.style.color = "#ff9d8b";
+    line.append(time, content);
+    el.appendChild(line);
+    while (el.children.length > 400) el.removeChild(el.firstChild);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function getServerActionResponse(action, payload) {
+    const cfg = getConfig();
+    if (!connectionConfigured()) throw new Error("Connect to Crafty and select a server first.");
+    const path = "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/action/" + encodeURIComponent(action);
+    const options = {method:"POST", headers:{"Accept":"application/json"}};
+    if (payload !== undefined) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(payload);
+    }
+    const response = await craftyFetch(cfg, path, options);
+    const raw = await response.text().catch(() => "");
+    if (!response.ok) throw new Error("HTTP " + response.status + (raw ? " — " + raw.replace(/\s+/g, " ").slice(0,320) : ""));
+    let parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch (_) {}
+    if (parsed && parsed.status === "error") throw new Error(parsed.error || parsed.message || "Crafty rejected the action.");
+    return {response, raw, parsed};
+  }
+
+  function auditSafeCommand(command) {
+    const value = String(command || "").trim();
+    const first = value.split(/\s+/)[0] || "command";
+    const sensitive = ["login","register","changepassword","password","passwd","token","secret","authme"];
+    if (sensitive.includes(first.toLowerCase())) return first + " [redacted]";
+    return value.slice(0,240);
+  }
+
+  async function performServerControl(action) {
+    if (!requirePermission("controlServer", "start/stop the server")) return;
+    const isStart = action === "start_server";
+    const button = document.getElementById(isStart ? "serverStartBtn" : "serverStopBtn");
+    if (button) { button.disabled = true; button.textContent = "Working…"; }
+    try {
+      await acquireServerMutationLock(getConfig(), isStart ? "start the server" : "stop the server");
+      let result;
+      try { result = await getServerActionResponse(action); }
+      finally { await releaseServerMutationLock(); }
+      terminalWriteLine("Crafty: " + (result.raw || "Action accepted."));
+      setTerminalStatus("Server action accepted. Refreshing status…");
+      await recordAudit("server." + action, isStart ? "Requested server start." : "Requested server stop.", true);
+      await refreshServerState(getConfig(), true);
+      setTimeout(() => refreshServerState(getConfig(), true), 1800);
+    } catch (e) {
+      terminalWriteLine("Error: " + (e && e.message ? e.message : e), "error");
+      setTerminalStatus("Action failed: " + (e && e.message ? e.message : e), true);
+      recordAudit("server." + action, String(e && e.message ? e.message : e), false).catch(() => {});
+    } finally {
+      if (button) { button.disabled = false; button.textContent = isStart ? "▶ Start" : "■ Stop"; }
+      renderServerState();
+    }
+  }
+
+  async function sendTerminalCommand(command) {
+    if (!requirePermission("runCommands", "run terminal commands")) return;
+    let value = String(command || "").trim();
+    if (value.startsWith("/")) value = value.slice(1).trim();
+    if (!value) return;
+    if (value.length > 512) { toast("Commands are limited to 512 characters.", "warn"); return; }
+    const input = document.getElementById("terminalCommandInput");
+    const send = document.getElementById("terminalSendBtn");
+    if (send) { send.disabled = true; send.textContent = "Sending…"; }
+    terminalCommandHistory.push(value);
+    terminalHistoryIndex = -1;
+    terminalWriteLine("> " + value);
+    if (input) input.value = "";
+    renderTerminalSuggestions("");
+    try {
+      await acquireServerMutationLock(getConfig(), "send a console command");
+      let result;
+      try { result = await getServerActionResponse("send_command", {command:value}); }
+      finally { await releaseServerMutationLock(); }
+      terminalWriteLine("Crafty: " + (result.raw || "Command accepted."));
+      setTerminalStatus("Command submitted.");
+      await recordAudit("terminal.command", auditSafeCommand(value), true);
+      await loadTerminalLogs();
+    } catch (e) {
+      terminalWriteLine("Error: " + (e && e.message ? e.message : e), "error");
+      setTerminalStatus("Command failed: " + (e && e.message ? e.message : e), true);
+      recordAudit("terminal.command", auditSafeCommand(value) + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
+    } finally {
+      if (send) { send.disabled = false; send.textContent = "Send"; }
+      if (input) input.focus();
+    }
+  }
+
+  async function loadTerminalLogs() {
+    if (!connectionConfigured()) return;
+    const output = document.getElementById("terminalOutput");
+    const status = document.getElementById("terminalStatus");
+    const cfg = getConfig();
+    if (status) status.textContent = "Loading server logs…";
+    try {
+      const response = await craftyFetch(cfg, "/api/v2/servers/" + encodeURIComponent(cfg.serverId) + "/logs", {method:"GET",headers:{"Accept":"application/json"}});
+      const raw = await response.text().catch(() => "");
+      if (!response.ok) throw new Error("HTTP " + response.status + (raw ? " — " + raw.slice(0,240) : ""));
+      let data;
+      try { data = raw ? JSON.parse(raw) : []; } catch (_) { data = raw; }
+      let logs = data && (data.data && (data.data.logs || data.data.lines) || data.logs || data.lines || data.data) || data;
+      if (logs && typeof logs === "object" && !Array.isArray(logs)) logs = logs.entries || logs.lines || [];
+      if (!Array.isArray(logs)) logs = typeof logs === "string" ? logs.split(/\r?\n/) : [];
+      if (output) {
+        output.innerHTML = "";
+        logs.slice(-250).forEach(item => {
+          const lineText = typeof item === "string" ? item : (item.message || item.line || item.text || JSON.stringify(item));
+          const div = document.createElement("div");
+          div.className = "terminal-log-line";
+          div.textContent = String(lineText);
+          output.appendChild(div);
+        });
+        if (!logs.length) {
+          const empty = document.createElement("div");
+          empty.className = "terminal-muted";
+          empty.textContent = "Crafty returned no log lines.";
+          output.appendChild(empty);
+        }
+        output.scrollTop = output.scrollHeight;
+      }
+      if (status) status.textContent = "Loaded " + logs.length + " log line(s).";
+    } catch (e) {
+      if (status) status.textContent = "Couldn't load console logs: " + (e && e.message ? e.message : e);
+      if (output && output.children.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "terminal-muted";
+        empty.textContent = "Crafty's log endpoint isn't available for this token/server. Commands can still be submitted below.";
+        output.appendChild(empty);
+      }
+    }
+  }
+
+  function renderTerminalSuggestions(value) {
+    const holder = document.getElementById("terminalSuggestions");
+    if (!holder) return;
+    const query = String(value || "").trim().replace(/^\//, "").toLowerCase();
+    terminalSuggestions = TERMINAL_COMMAND_TEMPLATES.filter(item => !query || item.toLowerCase().startsWith(query) || item.toLowerCase().includes(" " + query)).slice(0,8);
+    terminalSuggestionIndex = -1;
+    holder.innerHTML = "";
+    if (!query || !terminalSuggestions.length) { holder.hidden = true; return; }
+    holder.hidden = false;
+    terminalSuggestions.forEach((suggestion, index) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = suggestion || "command";
+      btn.addEventListener("mousedown", event => event.preventDefault());
+      btn.addEventListener("click", () => {
+        const input = document.getElementById("terminalCommandInput");
+        if (input) { input.value = suggestion; input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+        holder.hidden = true;
+      });
+      btn.dataset.index = String(index);
+      holder.appendChild(btn);
+    });
+  }
+
   // ---------- quality-of-life shortcuts ----------
   document.addEventListener("keydown", e => {
     if (e.ctrlKey && e.key.toLowerCase() === "k") {
