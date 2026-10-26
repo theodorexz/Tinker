@@ -6997,6 +6997,102 @@
     });
   }
 
+  async function loadWorldRegions() {
+    if (!connectionConfigured()) return;
+    const cfg = getConfig();
+    const regionPath = document.getElementById("worldDimensionSelect").value;
+    const listEl = document.getElementById("worldRegionList");
+    const countEl = document.getElementById("worldRegionCount");
+    const status = document.getElementById("worldExportStatus");
+    const downloadBtn = document.getElementById("worldDownloadSelectedBtn");
+    if (listEl) listEl.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
+    if (countEl) countEl.textContent = "Loading…";
+    if (status) status.textContent = "";
+    try {
+      const files = await listCraftyDirectory(cfg, regionPath, null);
+      worldRegionFiles = files.filter(item => !item.isDirectory && /\.mca$/i.test(String(item.name || "")))
+        .map(item => ({name:basename(item.path || item.name),path:item.path || joinServerPath(regionPath,item.name),size:Number(item.size || 0),modified:item.modified || ""}))
+        .sort((a,b) => a.name.localeCompare(b.name));
+      if (countEl) countEl.textContent = worldRegionFiles.length + " region file(s)";
+      if (!worldRegionFiles.length) {
+        if (listEl) listEl.innerHTML = '<div class="empty-state small">No .mca files found in ' + escapeHtml(regionPath) + '. The world may use another layout or have no generated chunks yet.</div>';
+        if (downloadBtn) downloadBtn.disabled = true;
+        return;
+      }
+      if (listEl) {
+        listEl.innerHTML = worldRegionFiles.map(item =>
+          '<label class="world-region-card"><input type="radio" name="worldRegion" value="' + escapeHtml(item.path) + '"><div style="min-width:0;flex:1"><div class="world-region-name">' + escapeHtml(item.name) + '</div><div class="world-region-meta">' + escapeHtml(formatBytes(item.size)) + (item.modified ? " · " + escapeHtml(item.modified) : "") + '</div></div></label>'
+        ).join("");
+        listEl.querySelectorAll('input[name="worldRegion"]').forEach(input => input.addEventListener("change", () => { if (downloadBtn) downloadBtn.disabled = !input.checked; }));
+      }
+      if (downloadBtn) downloadBtn.disabled = true;
+    } catch(e) {
+      worldRegionFiles = [];
+      if (countEl) countEl.textContent = "Load failed";
+      if (listEl) listEl.innerHTML = '<div class="empty-state small"><strong>Couldn’t list region files.</strong><br><br>' + escapeHtml(e && e.message ? e.message : e) + '</div>';
+      if (downloadBtn) downloadBtn.disabled = true;
+    }
+  }
+
+  async function exportCraftyBytes(filename, bytes) {
+    if (!nativeBridgeAvailable()) throw new Error("File export is only available in the Tinker desktop app.");
+    const raw = bytes instanceof ArrayBuffer ? bytes : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const path = await window.__TAURI__.core.invoke("save_temp_file",{filename,dataBase64:base64FromArrayBuffer(raw)});
+    await window.__TAURI__.core.invoke("reveal_path",{path});
+    return path;
+  }
+
+  async function downloadSelectedRegion() {
+    if (!requirePermission("manageWorld", "export world files")) return;
+    const selected = document.querySelector('input[name="worldRegion"]:checked');
+    if (!selected) { toast("Choose a region file first.", "warn"); return; }
+    const item = worldRegionFiles.find(region => region.path === selected.value);
+    if (!item) return;
+    const button = document.getElementById("worldDownloadSelectedBtn");
+    const status = document.getElementById("worldExportStatus");
+    if (button) { button.disabled = true; button.textContent = "Exporting…"; }
+    if (status) status.textContent = "";
+    try {
+      await requireServerStopped("export world region data");
+      const bytes = await downloadPlayerDataBuffer(getConfig(), {dataPath:item.path});
+      const outPath = await exportCraftyBytes(item.name, bytes);
+      if (status) status.textContent = "Saved " + outPath;
+      toast("Exported " + item.name, "ok");
+      await recordAudit("world.export-region", item.path, true);
+    } catch(e) {
+      if (status) status.textContent = "Export failed: " + (e && e.message ? e.message : e);
+      toast("Couldn't export region: " + (e && e.message ? e.message : e), "error");
+      recordAudit("world.export-region", item.path + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
+    } finally {
+      if (button) { button.textContent = "Download selected region"; button.disabled = !document.querySelector('input[name="worldRegion"]:checked'); }
+    }
+  }
+
+  async function downloadDimensionArchive() {
+    if (!requirePermission("manageWorld", "export world files")) return;
+    const cfg = getConfig();
+    const path = document.getElementById("worldDimensionSelect").value;
+    const button = document.getElementById("worldDownloadArchiveBtn");
+    const status = document.getElementById("worldExportStatus");
+    if (button) { button.disabled = true; button.textContent = "Exporting…"; }
+    if (status) status.textContent = "";
+    try {
+      await requireServerStopped("export a world dimension");
+      const bytes = await downloadCraftyDirectoryArchive(cfg, path);
+      const filename = path.split("/").filter(Boolean).join("-") + "-regions.zip";
+      const outPath = await exportCraftyBytes(filename, bytes);
+      if (status) status.textContent = "Saved " + outPath;
+      toast("Exported " + path + " as a ZIP", "ok");
+      await recordAudit("world.export-dimension", path, true);
+    } catch(e) {
+      if (status) status.textContent = "Export failed: " + (e && e.message ? e.message : e);
+      toast("Couldn't export dimension: " + (e && e.message ? e.message : e), "error");
+      recordAudit("world.export-dimension", path + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
+    } finally {
+      if (button) { button.disabled = false; button.textContent = "Export dimension as ZIP"; }
+    }
+  }
+
   // ---------- quality-of-life shortcuts ----------
   document.addEventListener("keydown", e => {
     if (e.ctrlKey && e.key.toLowerCase() === "k") {
