@@ -2264,18 +2264,31 @@
     return connectionVerified && Boolean(cfg.craftyUrl && cfg.apiToken && cfg.serverId);
   }
   function setTabsUnlocked(ready) {
+    const allowed = Boolean(ready && !teamAccessPending && hasTeamAccess());
     tabButtons.forEach(btn => {
       if (btn.dataset.tab === "connection") return;
-      btn.disabled = !ready;
+      btn.disabled = !allowed;
     });
     const badge = document.getElementById("connectionReadyBadge");
     if (badge) {
-      badge.textContent = ready ? "Connected" : "Not configured";
-      badge.classList.toggle("ready", ready);
+      badge.textContent = !ready ? "Not configured" : (allowed ? "Connected" : "Sign-in required");
+      badge.classList.toggle("ready", allowed);
     }
   }
   function switchTab(name) {
     const ready = connectionConfigured();
+    if (name !== "connection" && teamAccessPending) {
+      toast("Sign in to Tinker before opening other tabs.", "warn");
+      return;
+    }
+    if (name !== "connection" && teamAuthEnabled() && !activeTeamUser) {
+      toast("Sign in to Tinker before opening other tabs.", "warn");
+      return;
+    }
+    if (name === "admin" && !can("manageUsers")) {
+      toast("Your Tinker account cannot manage team users.", "warn");
+      return;
+    }
     if (name !== "connection" && !ready) {
       name = "connection";
       toast("Connect to Crafty and choose a server first", "warn");
