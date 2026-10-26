@@ -1220,11 +1220,29 @@
   function u32(view, offset) { return view.getUint32(offset, true); }
 
   async function inflateRaw(bytes) {
-    if (typeof DecompressionStream === "undefined") {
-      throw new Error("This browser cannot decompress JAR metadata (DecompressionStream is unavailable)");
+    let browserError = null;
+    if (typeof DecompressionStream !== "undefined") {
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch (e) {
+        browserError = e;
+      }
     }
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+
+    // WKWebView versions on macOS do not consistently implement "deflate-raw".
+    // Fall back to Rust's pure-Rust DEFLATE decoder rather than silently skipping
+    // every entry in the downloaded mods archive.
+    if (nativeBridgeAvailable()) {
+      const rawBytes = bytes instanceof Uint8Array
+        ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+        : bytes;
+      const encoded = base64FromArrayBuffer(rawBytes);
+      const decoded = await window.__TAURI__.core.invoke("inflate_raw_bytes", { dataBase64: encoded });
+      return new Uint8Array(arrayBufferFromBase64(decoded));
+    }
+
+    throw new Error("ZIP DEFLATE is unavailable in this browser" + (browserError ? ": " + (browserError.message || browserError) : ""));
   }
 
   async function readZipEntryBytes(buffer, wantedNames) {
