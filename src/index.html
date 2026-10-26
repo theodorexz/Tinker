@@ -2586,9 +2586,16 @@
       setConnPill("ok", "connected");
       saveConfig();
       connectionVerified = Boolean(els.serverId.value);
-      setTabsUnlocked(connectionVerified);
+      teamAccessPending = true;
+      setTabsUnlocked(false);
       await refreshServerState(getConfig(), true);
       await detectServerEnv(getConfig());
+      await initializeTeamAccess(getConfig());
+      if (!hasTeamAccess()) {
+        updateConnectionCards();
+        return;
+      }
+      teamAccessPending = false;
       setTabsUnlocked(true);
       updateConnectionCards();
       await scanInstalledMods();
@@ -2637,6 +2644,9 @@
   els.refreshBtn.addEventListener("click", () => loadServers(getConfig()));
   els.serverId.addEventListener("change", async () => {
     connectionVerified = Boolean(els.serverId.value);
+    teamAccessPending = true;
+    activeTeamUser = null;
+    teamStateServerKey = "";
     serverSettingsLoaded = false;
     configFilesLoaded = false;
     configFiles = [];
@@ -2648,6 +2658,9 @@
     saveConfig();
     await refreshServerState(getConfig(), true);
     await detectServerEnv(getConfig());
+    await initializeTeamAccess(getConfig());
+    if (!hasTeamAccess()) { updateConnectionCards(); return; }
+    teamAccessPending = false;
     setTabsUnlocked(true);
     updateConnectionCards();
     await scanInstalledMods();
