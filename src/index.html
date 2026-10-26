@@ -1402,24 +1402,14 @@
 
   async function loadTeamStateFromServer(cfg) {
     try {
-      // Read the exact file first. Some Crafty file listings omit hidden dot-files,
-      // which would make an existing team file look like it doesn't exist.
-      const result = await readCraftyTextFile(cfg, TEAM_STATE_FILENAME);
-      try { return normalizeTeamState(JSON.parse(result.content)); }
+      // The direct file-download API is more reliable for hidden dot-files than a
+      // directory listing, which may omit them depending on the Crafty version.
+      const buffer = await downloadCraftyRawFileBuffer(cfg, TEAM_STATE_FILENAME);
+      const raw = new TextDecoder().decode(new Uint8Array(buffer));
+      try { return normalizeTeamState(JSON.parse(raw)); }
       catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Repair " + TEAM_STATE_FILENAME + " in Crafty."); }
     } catch (error) {
-      const message = String(error && error.message ? error.message : error);
-      if (/HTTP 404|API_HANDLER_NOT_FOUND|no such file|file not found|ENOENT/i.test(message)) return null;
-
-      // Only use the root listing to distinguish a missing file from a genuine
-      // permission/server error; never treat a failed list as an empty new team.
-      try {
-        const rootItems = await listCraftyDirectory(cfg, ".", null);
-        const exists = rootItems.some(item =>
-          String(basename(item.path || item.name) || "").toLowerCase() === TEAM_STATE_FILENAME.toLowerCase()
-        );
-        if (!exists) return null;
-      } catch (_) {}
+      if (Number(error && error.status) === 404 || /HTTP 404|API_HANDLER_NOT_FOUND|no such file|file not found|ENOENT/i.test(String(error && error.message ? error.message : error))) return null;
       throw error;
     }
   }
