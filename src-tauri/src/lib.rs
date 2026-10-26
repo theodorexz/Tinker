@@ -1,8 +1,10 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use flate2::read::DeflateDecoder;
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -152,6 +154,20 @@ async fn crafty_request(args: CraftyRequestArgs) -> Result<CraftyResponse, Strin
 async fn ping() -> Result<String, String> {
     Ok("Tinker native bridge is running".to_string())
 }
+
+#[tauri::command]
+fn inflate_raw_bytes(data_base64: String) -> Result<String, String> {
+    let compressed = BASE64
+        .decode(data_base64)
+        .map_err(|e| format!("Invalid compressed-data encoding: {e}"))?;
+    let mut decoder = DeflateDecoder::new(&compressed[..]);
+    let mut output = Vec::new();
+    decoder
+        .read_to_end(&mut output)
+        .map_err(|e| format!("Could not decompress ZIP entry with native DEFLATE: {e}"))?;
+    Ok(BASE64.encode(output))
+}
+
 
 #[tauri::command]
 async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
@@ -330,6 +346,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             crafty_request,
             ping,
+            inflate_raw_bytes,
             load_connection_config,
             save_connection_config,
             check_for_update,
