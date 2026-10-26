@@ -1459,6 +1459,10 @@
       success:success !== false
     };
     if (!teamAuthEnabled()) {
+      try {
+        const saved = JSON.parse(localStorage.getItem("tinkerLocalAudit:" + registryKey(getConfig())) || "[]");
+        if (Array.isArray(saved)) localAuditLog = saved;
+      } catch (_) {}
       localAuditLog.unshift(event);
       localAuditLog = localAuditLog.slice(0,200);
       try { localStorage.setItem("tinkerLocalAudit:" + registryKey(getConfig()), JSON.stringify(localAuditLog)); } catch (_) {}
@@ -2551,7 +2555,7 @@
     try{
       const localPrefs=JSON.parse(localStorage.getItem("tinkerLocalPreferences:"+registryKey(getConfig()))||"{}");
       if(localPrefs.theme)applyTheme(localPrefs.theme);
-      const localAudit=JSON.parse(localStorage.getItem("tinkerLocalAudit:"+registryKey(getConfig())||"[]"));
+      const localAudit=JSON.parse(localStorage.getItem("tinkerLocalAudit:"+registryKey(getConfig()))||"[]");
       if(Array.isArray(localAudit))localAuditLog=localAudit;
     }catch(_){}
   })();
@@ -3096,7 +3100,7 @@
       btn.disabled = !can("editServerConfig") || stoppedMutationLocked || (btn.id === "serverIconUploadBtn" && !document.getElementById("serverIconInput")?.files?.length);
       if (!can("editServerConfig")) btn.title = "Your Tinker account cannot edit server configuration";
     });
-    document.querySelectorAll("#configConfigureBtn, #configStructuredSaveBtn, #jsonHeroSaveBtn, #configSaveFileBtn").forEach(btn => {
+    document.querySelectorAll("#configStructuredSaveBtn, #jsonHeroSaveBtn, #configSaveFileBtn").forEach(btn => {
       btn.disabled = !can("editModConfig") || stoppedMutationLocked;
       if (!can("editModConfig")) btn.title = "Your Tinker account cannot edit mod configuration";
     });
@@ -3116,7 +3120,7 @@
       if (!can("runCommands")) terminalSend.title = "Your Tinker account cannot run terminal commands";
     }
     document.querySelectorAll("#worldDownloadSelectedBtn, #worldDownloadArchiveBtn").forEach(btn => {
-      btn.disabled = !can("manageWorld") || stoppedMutationLocked;
+      btn.disabled = !can("manageWorld") || stoppedMutationLocked || (btn.id === "worldDownloadSelectedBtn" && !document.querySelector('input[name="worldRegion"]:checked'));
       if (!can("manageWorld")) btn.title = "Your Tinker account cannot export world files";
     });
     updateConnectionCards();
@@ -6985,7 +6989,7 @@
     if (value.length > 512) { toast("Commands are limited to 512 characters.", "warn"); return; }
     const input = document.getElementById("terminalCommandInput");
     const send = document.getElementById("terminalSendBtn");
-    if (send) { send.disabled = true; send.textContent = "Sending…"; }
+    if (send) { send.dataset.sending = "true"; send.disabled = true; send.textContent = "Sending…"; }
     terminalCommandHistory.push(value);
     terminalHistoryIndex = -1;
     terminalWriteLine("> " + value);
@@ -7005,7 +7009,7 @@
       setTerminalStatus("Command failed: " + (e && e.message ? e.message : e), true);
       recordAudit("terminal.command", auditSafeCommand(value) + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
     } finally {
-      if (send) { send.disabled = false; send.textContent = "Send"; }
+      if (send) { delete send.dataset.sending; send.disabled = !can("runCommands"); send.textContent = "Send"; }
       if (input) input.focus();
     }
   }
