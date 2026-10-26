@@ -2298,6 +2298,10 @@
     if (name === "explorer") { if (!hasLiveScan) scanInstalledMods(); }
     if (name === "players") loadPlayers();
     if (name === "configuration") { switchConfigView("server"); loadServerSettings(); }
+    if (name === "terminal") loadTerminalLogs();
+    if (name === "world") loadWorldRegions();
+    if (name === "admin") renderAdminPanel();
+    if (name === "settings") renderSettingsPanel();
   }
   tabButtons.forEach(btn => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
   els.installedToggleBtn.addEventListener("click", () => switchTab("explorer"));
@@ -7092,6 +7096,118 @@
       if (button) { button.disabled = false; button.textContent = "Export dimension as ZIP"; }
     }
   }
+
+  function renderSettingsPanel() {
+    const prefs = activeTeamUser && activeTeamUser.preferences ? activeTeamUser.preferences : {};
+    let theme = prefs.theme || "dark";
+    let sync = prefs.sync !== false;
+    if (!activeTeamUser) {
+      try {
+        const local = JSON.parse(localStorage.getItem("tinkerLocalPreferences:" + registryKey(getConfig())) || "{}");
+        theme = local.theme || "dark";
+        sync = false;
+      } catch (_) {}
+    }
+    const themeSelect = document.getElementById("themeSelect");
+    const syncToggle = document.getElementById("syncPreferencesToggle");
+    if (themeSelect) themeSelect.value = theme;
+    if (syncToggle) {
+      syncToggle.checked = sync;
+      syncToggle.disabled = !teamAuthEnabled() || !activeTeamUser;
+    }
+    applyTheme(theme);
+  }
+
+  async function saveTeamPreferences() {
+    const theme = document.getElementById("themeSelect").value;
+    const sync = document.getElementById("syncPreferencesToggle").checked;
+    try {
+      await persistPreference(theme, sync);
+      applyTheme(theme);
+      toast("Preferences saved", "ok");
+      if (teamAuthEnabled() && activeTeamUser) recordAudit("preferences.save", "Saved appearance preferences.", true).catch(() => {});
+    } catch (e) {
+      toast("Couldn't save preferences: " + (e && e.message ? e.message : e), "error");
+    }
+  }
+
+  async function signOutTeamUser() {
+    if (activeTeamUser) recordAudit("auth.logout", "Signed out of Tinker.", true).catch(() => {});
+    activeTeamUser = null;
+    if (teamAuthEnabled()) {
+      teamAccessPending = true;
+      setTabsUnlocked(false);
+      await openTeamLoginModal(getConfig());
+    } else {
+      applyTheme("dark");
+      setTabsUnlocked(connectionConfigured());
+    }
+  }
+
+  function wireNewPanels() {
+    document.getElementById("serverStartBtn").addEventListener("click", () => performServerControl("start_server"));
+    document.getElementById("serverStopBtn").addEventListener("click", () => performServerControl("stop_server"));
+    document.getElementById("terminalRefreshBtn").addEventListener("click", loadTerminalLogs);
+    document.getElementById("terminalCommandForm").addEventListener("submit", event => {
+      event.preventDefault();
+      sendTerminalCommand(document.getElementById("terminalCommandInput").value);
+    });
+    document.getElementById("terminalCommandInput").addEventListener("input", event => renderTerminalSuggestions(event.target.value));
+    document.getElementById("terminalCommandInput").addEventListener("keydown", event => {
+      const holder = document.getElementById("terminalSuggestions");
+      if (event.key === "Tab" && terminalSuggestions.length) {
+        event.preventDefault();
+        const index = Math.max(0, terminalSuggestionIndex);
+        const value = terminalSuggestions[index];
+        event.target.value = value;
+        holder.hidden = true;
+        event.target.setSelectionRange(value.length, value.length);
+      } else if (event.key === "ArrowDown" && terminalSuggestions.length) {
+        event.preventDefault();
+        terminalSuggestionIndex = Math.min(terminalSuggestionIndex + 1, terminalSuggestions.length - 1);
+      } else if (event.key === "ArrowUp" && terminalSuggestions.length) {
+        event.preventDefault();
+        terminalSuggestionIndex = Math.max(0, terminalSuggestionIndex - 1);
+      } else if (event.key === "ArrowUp" && terminalCommandHistory.length) {
+        event.preventDefault();
+        terminalHistoryIndex = Math.min(terminalHistoryIndex + 1, terminalCommandHistory.length - 1);
+        event.target.value = terminalCommandHistory[terminalCommandHistory.length - 1 - terminalHistoryIndex];
+        return;
+      } else if (event.key === "ArrowDown" && terminalCommandHistory.length) {
+        event.preventDefault();
+        terminalHistoryIndex = Math.max(-1, terminalHistoryIndex - 1);
+        event.target.value = terminalHistoryIndex < 0 ? "" : terminalCommandHistory[terminalCommandHistory.length - 1 - terminalHistoryIndex];
+        return;
+      }
+      const buttons = holder.querySelectorAll("button");
+      buttons.forEach((btn, index) => btn.style.outline = index === terminalSuggestionIndex ? "2px solid var(--brand-bright)" : "");
+    });
+    document.getElementById("worldRefreshBtn").addEventListener("click", loadWorldRegions);
+    document.getElementById("worldDimensionSelect").addEventListener("change", loadWorldRegions);
+    document.getElementById("worldDownloadSelectedBtn").addEventListener("click", downloadSelectedRegion);
+    document.getElementById("worldDownloadArchiveBtn").addEventListener("click", downloadDimensionArchive);
+    document.getElementById("mcaSelectorDownloadBtn").addEventListener("click", () => openExternalUrl("https://github.com/Querz/mcaselector/releases/latest"));
+    document.getElementById("mcaSelectorSettingsLink").addEventListener("click", () => openExternalUrl("https://github.com/Querz/mcaselector/releases/latest"));
+    document.getElementById("nbtExplorerDownloadBtn").addEventListener("click", () => openExternalUrl("https://github.com/jaquadro/NBTExplorer"));
+    document.getElementById("themeToggleBtn").addEventListener("click", async () => {
+      const next = currentTheme === "light" ? "dark" : "light";
+      if (activeTeamUser) {
+        await persistPreference(next, document.getElementById("syncPreferencesToggle").checked);
+      } else {
+        try { localStorage.setItem("tinkerLocalPreferences:" + registryKey(getConfig()), JSON.stringify({theme:next,sync:false})); } catch (_) {}
+        applyTheme(next);
+      }
+    });
+    document.getElementById("savePreferencesBtn").addEventListener("click", saveTeamPreferences);
+    document.getElementById("settingsReloginBtn").addEventListener("click", signOutTeamUser);
+    document.getElementById("auditRefreshBtn").addEventListener("click", async () => {
+      try { await refreshTeamState(); renderAuditLog(); }
+      catch (e) { toast("Couldn't refresh audit log: " + (e && e.message ? e.message : e), "error"); }
+    });
+    document.getElementById("adminCreateUserForm").addEventListener("submit", addTeamUser);
+  }
+
+  wireNewPanels();
 
   // ---------- quality-of-life shortcuts ----------
   document.addEventListener("keydown", e => {
