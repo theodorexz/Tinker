@@ -3073,6 +3073,14 @@
       els.updateAllBtn.classList.toggle("server-locked", locked);
       els.updateAllBtn.title = locked ? lockTitle : "Update all";
     }
+    document.querySelectorAll(".install-btn").forEach(btn => { if (!can("installMods")) { btn.disabled = true; btn.title = "Your Tinker account cannot install mods"; } });
+    document.querySelectorAll(".update-btn, .version-btn, #updateAllBtn").forEach(btn => { if (!can("updateMods")) { btn.disabled = true; btn.title = "Your Tinker account cannot update mods"; } });
+    document.querySelectorAll(".delete-btn").forEach(btn => { if (!can("deleteMods")) { btn.disabled = true; btn.title = "Your Tinker account cannot delete mods"; } });
+    document.querySelectorAll("#serverSettingsSaveBtn, #serverIconUploadBtn, #openWhitelistEditorBtn").forEach(btn => { if (!can("editServerConfig")) { btn.disabled = true; btn.title = "Your Tinker account cannot edit server configuration"; } });
+    document.querySelectorAll("#configStructuredSaveBtn, #jsonHeroSaveBtn, #configSaveFileBtn").forEach(btn => { if (!can("editModConfig")) { btn.disabled = true; btn.title = "Your Tinker account cannot edit mod configuration"; } });
+    document.querySelectorAll("#serverStartBtn, #serverStopBtn").forEach(btn => { if (!can("controlServer")) { btn.disabled = true; btn.title = "Your Tinker account cannot control the server"; } });
+    document.querySelectorAll("#terminalSendBtn").forEach(btn => { if (!can("runCommands")) { btn.disabled = true; btn.title = "Your Tinker account cannot run commands"; } });
+    document.querySelectorAll("#worldDownloadSelectedBtn, #worldDownloadArchiveBtn").forEach(btn => { if (!can("manageWorld")) { btn.disabled = true; btn.title = "Your Tinker account cannot export world files"; } });
     updateConnectionCards();
   }
 
@@ -4076,6 +4084,7 @@
       }
 
       buildDependencyRelationships();
+      applyTeamAttributionToMods();
       installedMods.forEach(entry => delete entry._scanBuffer);
       installedMods.sort((a,b) => String(a.title || a.filename).localeCompare(String(b.title || b.filename)));
       hasLiveScan = true;
@@ -4252,6 +4261,7 @@
   }
 
   async function installMod(hit, btn, logEl) {
+    if (!requirePermission("installMods", "install mods")) return;
     const cfg = getConfig();
     if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) {
       toast("Set your Crafty connection first", "error");
@@ -4347,7 +4357,14 @@
         }
         await scanInstalledMods();
       });
+      for (const item of downloaded) {
+        await saveModAttribution({projectId:item.projectId,filename:item.file.filename,filePath:joinServerPath(cfg.modsPath,item.file.filename),title:item.project.title || item.file.filename,versionId:item.version.id});
+      }
+      await recordAudit("mod.install", "Installed " + downloaded.map(item => item.project.title || item.file.filename).join(", ") + ".", true);
+      applyTeamAttributionToMods();
+      renderSidebar();
     } catch (e) {
+      recordAudit("mod.install", String(hit.title || hit.project_id) + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
       setBtnState(btn, "error", "Failed — retry");
       logEl.textContent = e.message;
       toast("Install failed: " + e.message, "error");
@@ -4356,6 +4373,8 @@
   }
   async function updateMod(entry, chosen, options) {
     options = options || {};
+    if (!requirePermission("updateMods", "update mods")) return;
+    let updatedEntryForAttribution = null;
     try {
       await requireServerStopped("update a mod");
       const { version, file } = chosen || await findMatchingVersion(entry.projectId);
@@ -4406,6 +4425,7 @@
           localIconPath: newLocalIconPath,
           source: entry.source === "server-link" ? "server-link" : "installed",
         });
+        updatedEntryForAttribution = updatedEntry;
 
         if (entry.source === "server-link" || entry.matchType === "manual") {
           updatedEntry._scanBuffer = buf;
@@ -4424,13 +4444,21 @@
         if (!options.skipRescan) await scanInstalledMods();
         else renderSidebar();
       });
+      if (updatedEntryForAttribution) {
+        await saveModAttribution(updatedEntryForAttribution);
+        await recordAudit("mod.update", "Updated " + entry.title + " to " + (updatedEntryForAttribution.versionNumber || "a new version") + ".", true);
+        applyTeamAttributionToMods();
+        renderSidebar();
+      }
     } catch (e) {
+      recordAudit("mod.update", String(entry.title || entry.filename) + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
       toast("Update failed for " + entry.title + ": " + e.message, "error");
       if (options.rethrow) throw e;
     }
   }
 
   async function deleteMod(entry) {
+    if (!requirePermission("deleteMods", "delete mods")) return;
     try { await requireServerStopped("delete a mod"); } catch (e) { toast(e.message, "warn"); renderServerState(); return; }
     if (!confirm("Delete " + entry.title + (entry.filename ? " (" + entry.filename + ")" : "") + " from the server's mods folder?")) return;
     try {
@@ -4444,7 +4472,9 @@
         refreshSearchCardStates();
         await scanInstalledMods();
       });
+      await recordAudit("mod.delete", "Deleted " + (entry.title || entry.filename) + ".", true);
     } catch (e) {
+      recordAudit("mod.delete", String(entry.title || entry.filename) + " — " + String(e && e.message ? e.message : e), false).catch(() => {});
       toast("Couldn't delete " + entry.title + ": " + e.message, "error");
     }
   }
@@ -4565,6 +4595,7 @@
         <div class="installed-main">
           <div class="installed-title">${escapeHtml(entry.title || cleanFilenameForSearch(entry.filename) || entry.filename)} ${entry.isDependency ? `<span class="dependency-badge">Dependency</span>` : ""}</div>
           <div class="installed-meta">${escapeHtml(versionText + updateText)} · ${escapeHtml(formatBytes(entry.fileSize))}${escapeHtml(matchText)}</div>
+          ${entry.addedBy ? `<div class="installed-detection">Added by ⬛ ${escapeHtml(entry.addedBy)}</div>` : ""}
           <div class="installed-file" title="${escapeHtml(entry.filePath || entry.filename)}">${escapeHtml(entry.filePath || entry.filename || "")}</div>
           ${entry.projectId && entry.confidence ? `<div class="installed-detection" title="How this mod was identified">${escapeHtml(entry.detectionSource || "detected")} · ${escapeHtml(String(entry.confidence))}% confidence${entry.metadataId ? " · " + escapeHtml(entry.metadataId) : ""}${entry.localIconPath ? " · local icon: " + escapeHtml(entry.localIconPath) : ""}</div>` : (entry.jarMetadata ? `<div class="installed-detection" title="Read from inside this JAR">JAR metadata: ${escapeHtml(entry.jarMetadata.id || entry.jarMetadata.name || "detected")}${entry.jarMetadata.version ? " · " + escapeHtml(entry.jarMetadata.version) : ""}</div>` : "")}
           ${!entry.projectId ? `<div class="installed-unmatched-reason">${entry.hashError ? "Couldn’t read the JAR bytes from Crafty" : entry.metadataError ? "Couldn’t parse the JAR metadata" : "No exact Modrinth hash/metadata match"}</div><button class="installed-link-btn link-mod-btn" type="button">Find on Modrinth</button>` : ""}
@@ -5626,6 +5657,9 @@
 
   async function openConfigEditor(file) {
     if (!file) return;
+    const filePath = String(file.path || file.name || "").replace(/\\/g,"/").toLowerCase();
+    const isModConfig = filePath === "config" || filePath.startsWith("config/");
+    if (!requirePermission(isModConfig ? "editModConfig" : "editServerConfig", isModConfig ? "edit mod configuration" : "edit server configuration")) return;
     try { await requireServerStopped("edit a config file"); }
     catch (e) { toast(e.message, "warn"); return; }
 
@@ -5962,6 +5996,7 @@
   }
 
   async function saveServerSettings() {
+    if (!requirePermission("editServerConfig", "edit server settings")) return;
     const status = document.getElementById("serverSettingsSaveStatus");
     const button = document.getElementById("serverSettingsSaveBtn");
     const changes = [];
@@ -6006,6 +6041,7 @@
   }
 
   async function uploadServerIcon() {
+    if (!requirePermission("editServerConfig", "change the server icon")) return;
     const input = document.getElementById("serverIconInput");
     const button = document.getElementById("serverIconUploadBtn");
     const status = document.getElementById("serverIconStatus");
