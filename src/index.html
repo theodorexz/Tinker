@@ -597,6 +597,66 @@
   .explorer-mod-card .installed-main { min-width:0; }
   .explorer-mod-card .installed-title { font-size:1rem; }
   .explorer-actions-inline { display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; }
+  body.theme-light {
+    --bg:#f4f6f8; --bg-raised:#ffffff; --panel:#ffffff; --panel-2:#edf0f3;
+    --border:#d6dbe0; --border-soft:#e5e8eb; --text:#171b20; --text-dim:#515c66;
+    --text-faint:#697580; --brand:#07883c; --brand-bright:#087f3a; --brand-dim:#0ca34a;
+    --brand-wash:rgba(12,163,74,.10); --amber:#9b5d00; --rust:#b72c19;
+  }
+  body.theme-light header.top { background:linear-gradient(180deg,#fff 0%,var(--bg) 100%); }
+  body.theme-light .modal-desc, body.theme-light .config-editor textarea { background:#f5f7f9; }
+  body.theme-light .config-editor textarea { color:var(--text); }
+  .active-user-badge { border:1px solid var(--border); background:var(--panel); color:var(--text-dim); border-radius:999px; padding:.35rem .65rem; font-size:.72rem; }
+  .server-action-buttons { display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; }
+  .btn.danger { border-color:rgba(224,88,63,.45); color:#ff9d8b; background:rgba(224,88,63,.08); }
+  .terminal-status { color:var(--text-faint); font-size:.78rem; margin:-.2rem 0 .7rem; min-height:1.2rem; }
+  .terminal-console { background:#07090b; color:#c8f8d9; border:1px solid var(--border); border-radius:10px; padding:1rem; min-height:280px; max-height:50vh; overflow:auto; font:.78rem/1.6 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+  body.theme-light .terminal-console { background:#111820; color:#d3f6df; }
+  .terminal-log-line { padding:.12rem 0; border-bottom:1px solid rgba(140,150,160,.1); }
+  .terminal-log-time { color:#718092; margin-right:.6rem; }
+  .terminal-muted { color:#7c8996; }
+  .terminal-command-bar { border:1px solid var(--border); border-radius:10px; padding:.8rem; margin-top:.7rem; background:var(--panel); }
+  .terminal-command-bar>label { display:block; color:var(--text-dim); font-size:.75rem; margin-bottom:.45rem; }
+  .terminal-command-row { display:flex; align-items:center; gap:.5rem; }
+  .terminal-command-row input { flex:1; min-width:0; font-family:var(--mono); }
+  .terminal-prompt { color:var(--brand-bright); font:700 1.25rem var(--mono); }
+  .terminal-suggestions { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.55rem; }
+  .terminal-suggestions button { background:var(--bg-raised); border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:.35rem .55rem; font:.7rem var(--mono); }
+  .world-tool-card { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; border:1px solid var(--border); background:var(--panel); border-radius:var(--radius); padding:1rem; margin:.8rem 0; }
+  .world-tool-card h2 { font-size:1rem; margin:0; }
+  .world-tool-card p { margin:.3rem 0 0; color:var(--text-faint); font-size:.75rem; }
+  .world-toolbar { display:flex; align-items:center; gap:.65rem; flex-wrap:wrap; margin:.9rem 0; }
+  .world-toolbar label { color:var(--text-dim); font-size:.75rem; }
+  .world-toolbar select { min-width:240px; }
+  .world-region-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:.6rem; }
+  .world-region-card { display:flex; align-items:center; gap:.6rem; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:.65rem; min-width:0; }
+  .world-region-card input { flex:none; }
+  .world-region-name { font:.78rem var(--mono); font-weight:700; overflow-wrap:anywhere; }
+  .world-region-meta { color:var(--text-faint); font-size:.67rem; margin-top:.2rem; }
+  .world-export-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:1rem; }
+  .admin-layout { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; align-items:start; }
+  .admin-layout .server-settings-card { min-width:0; }
+  .admin-layout h2 { font-size:1rem; margin:0; }
+  .permission-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem .75rem; margin-top:.8rem; }
+  .permission-toggle { display:flex; align-items:flex-start; gap:.45rem; font-size:.75rem; color:var(--text-dim); }
+  .permission-toggle input { width:auto; margin-top:.15rem; }
+  .admin-user-list { display:flex; flex-direction:column; gap:.55rem; margin-top:.8rem; }
+  .admin-user-row { border:1px solid var(--border-soft); border-radius:8px; padding:.7rem; display:flex; align-items:center; gap:.6rem; }
+  .admin-user-avatar { display:flex; flex:none; width:38px; height:38px; border-radius:50%; background:var(--bg-raised); align-items:center; justify-content:center; font-size:1.2rem; }
+  .admin-user-main { flex:1; min-width:0; }
+  .admin-user-name { font-weight:700; font-size:.82rem; overflow-wrap:anywhere; }
+  .admin-user-meta { font-size:.68rem; color:var(--text-faint); margin-top:.2rem; }
+  .admin-audit-header { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; }
+  .admin-audit-list { max-height:500px; overflow:auto; margin-top:.6rem; }
+  .admin-audit-row { display:grid; grid-template-columns:130px minmax(0,1fr); gap:.8rem; padding:.6rem .25rem; border-bottom:1px solid var(--border-soft); font-size:.73rem; }
+  .admin-audit-time { color:var(--text-faint); font-family:var(--mono); font-size:.64rem; }
+  .admin-audit-title { font-weight:700; }
+  .admin-audit-detail { color:var(--text-dim); overflow-wrap:anywhere; margin-top:.15rem; }
+  .settings-preferences-card { max-width:900px; }
+  .tool-download-links { display:flex; flex-wrap:wrap; gap:1rem; margin-top:.6rem; }
+  .tool-download-links button { font-size:.82rem; }
+  @media(max-width:850px) { .admin-layout { grid-template-columns:1fr; } .permission-grid { grid-template-columns:1fr; } .admin-audit-row { grid-template-columns:1fr; gap:.3rem; } }
+
   .config-tab-panel { min-height:calc(100vh - 170px); }
   .config-subtabs { display:flex; align-items:center; gap:.4rem; border-bottom:1px solid var(--border); margin:.1rem 0 1rem; padding:0 .15rem; }
   .config-subtab { border:0; border-bottom:2px solid transparent; border-radius:6px 6px 0 0; background:transparent; color:var(--text-dim); font-weight:700; padding:.7rem 1rem; }
