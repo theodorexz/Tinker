@@ -6428,7 +6428,10 @@
         }
       } else {
         const align = String(node.getAttribute("align") || "").toLowerCase();
-        if (["left","right","center","justify"].includes(align)) addAttr("align",align);
+        if (["left","right","center","justify"].includes(align)) {
+          addAttr("align",align);
+          if (tag === "div" || tag === "p" || tag === "center") addAttr("style","text-align:" + align + ";");
+        }
         if (tag === "th" || tag === "td") {
           for (const attrName of ["colspan","rowspan"]) {
             const value = Number.parseInt(node.getAttribute(attrName) || "",10);
@@ -6586,6 +6589,9 @@
           if (image.isConnected) replaceFailedDescriptionImage(image, originalUrl);
         }
       }, {once:true});
+      // If WebView finished the first image request before this listener was added,
+      // trigger the same proxy/fallback logic immediately instead of leaving a blank box.
+      if (image.complete && image.naturalWidth === 0) image.dispatchEvent(new Event("error"));
     });
   }
 
