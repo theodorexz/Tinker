@@ -1317,6 +1317,32 @@
   let modrinthQueue = Promise.resolve();
   let modrinthLastRequestAt = 0;
 
+  // Shared team state stored on the selected Crafty server so preferences and
+  // account records follow the team between devices. Crafty's own API permissions
+  // remain the real security boundary for direct API use.
+  const TEAM_STATE_FILENAME = ".tinker-team.json";
+  const TEAM_PERMISSIONS = [
+    ["installMods","Install mods"], ["updateMods","Update / change versions"], ["deleteMods","Delete mods"],
+    ["editServerConfig","Edit server settings"], ["editModConfig","Edit mod configuration"],
+    ["controlServer","Start / stop server"], ["runCommands","Run terminal commands"],
+    ["manageWorld","Export world files"], ["manageUsers","Manage team users and permissions"],
+    ["viewAudit","View audit log"]
+  ];
+  let teamState = { version:1, enabled:false, users:[], audit:[], modAttribution:{} };
+  let activeTeamUser = null;
+  let teamStateServerKey = "";
+  let teamAccessPending = false;
+  let teamAuthResolving = false;
+  let teamStateWriteQueue = Promise.resolve();
+  let localAuditLog = [];
+  let currentTheme = "dark";
+  let terminalCommandHistory = [];
+  let terminalHistoryIndex = -1;
+  let terminalSuggestions = [];
+  let terminalSuggestionIndex = -1;
+  let worldRegionFiles = [];
+
+
   // ---------- small helpers ----------
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
