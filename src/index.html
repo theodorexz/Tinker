@@ -1326,7 +1326,7 @@
   const TEAM_PERMISSIONS = [
     ["installMods","Install mods"], ["updateMods","Update / change versions"], ["deleteMods","Delete mods"],
     ["editServerConfig","Edit server settings"], ["editModConfig","Edit mod configuration"],
-    ["controlServer","Start / stop server"], ["runCommands","Run terminal commands"],
+    ["controlServer","Start / stop server"], ["viewConsole","View server console/logs"], ["runCommands","Run terminal commands"],
     ["manageWorld","Export world files"], ["manageUsers","Manage team users and permissions"],
     ["viewAudit","View audit log"]
   ];
@@ -2376,6 +2376,10 @@
       toast("Your Tinker account cannot manage users or view the audit log.", "warn");
       return;
     }
+    if (name === "terminal" && !can("viewConsole") && !can("runCommands") && !can("controlServer")) {
+      toast("Your Tinker account cannot view the console, run commands, or control the server.", "warn");
+      return;
+    }
     if (name !== "connection" && !ready) {
       name = "connection";
       toast("Connect to Crafty and choose a server first", "warn");
@@ -3193,6 +3197,8 @@
       stopBtn.disabled = !can("controlServer") || !serverState.known || !serverState.running || serverState.updating;
       stopBtn.title = can("controlServer") ? "Stop the Minecraft server" : "Your Tinker account cannot control the server";
     }
+    const terminalRefresh = document.getElementById("terminalRefreshBtn");
+    if (terminalRefresh) terminalRefresh.disabled = !can("viewConsole");
     const terminalSend = document.getElementById("terminalSendBtn");
     if (terminalSend && !terminalSend.dataset.sending) {
       terminalSend.disabled = !can("runCommands");
@@ -7097,6 +7103,11 @@
     if (!connectionConfigured()) return;
     const output = document.getElementById("terminalOutput");
     const status = document.getElementById("terminalStatus");
+    if (!requirePermission("viewConsole", "view server console logs")) {
+      if (output) output.innerHTML = '<div class="terminal-muted">Your Tinker account cannot view console logs.</div>';
+      if (status) status.textContent = "Permission denied.";
+      return;
+    }
     const cfg = getConfig();
     if (status) status.textContent = "Loading server logs…";
     try {
