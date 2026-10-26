@@ -1399,16 +1399,28 @@
   }
 
   async function loadTeamStateFromServer(cfg) {
-    const rootItems = await listCraftyDirectory(cfg, ".", null);
-    const exists = rootItems.some(item =>
-      String(basename(item.path || item.name) || "").toLowerCase() === TEAM_STATE_FILENAME.toLowerCase()
-    );
-    if (!exists) return null;
-    const result = await readCraftyTextFile(cfg, TEAM_STATE_FILENAME);
-    try { return normalizeTeamState(JSON.parse(result.content)); }
-    catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Rename or repair " + TEAM_STATE_FILENAME + " in Crafty."); }
-  }
+    try {
+      // Read the exact file first. Some Crafty file listings omit hidden dot-files,
+      // which would make an existing team file look like it doesn't exist.
+      const result = await readCraftyTextFile(cfg, TEAM_STATE_FILENAME);
+      try { return normalizeTeamState(JSON.parse(result.content)); }
+      catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Repair " + TEAM_STATE_FILENAME + " in Crafty."); }
+    } catch (error) {
+      const message = String(error && error.message ? error.message : error);
+      if (/HTTP 404|API_HANDLER_NOT_FOUND|no such file|file not found|ENOENT/i.test(message)) return null;
 
+      // Only use the root listing to distinguish a missing file from a genuine
+      // permission/server error; never treat a failed list as an empty new team.
+      try {
+        const rootItems = await listCraftyDirectory(cfg, ".", null);
+        const exists = rootItems.some(item =>
+          String(basename(item.path || item.name) || "").toLowerCase() === TEAM_STATE_FILENAME.toLowerCase()
+        );
+        if (!exists) return null;
+      } catch (_) {}
+      throw error;
+    }
+  }
   async function writeTeamStateToServer(cfg, state) {
     const raw = JSON.stringify(state, null, 2);
     await uploadBufferToServer(cfg, ".", TEAM_STATE_FILENAME, encodeUtf8(raw));
