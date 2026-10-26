@@ -1322,7 +1322,7 @@
   // Shared team state stored on the selected Crafty server so preferences and
   // account records follow the team between devices. Crafty's own API permissions
   // remain the real security boundary for direct API use.
-  const TEAM_STATE_FILENAME = ".tinker-team.json";
+  const TEAM_STATE_FILENAME = ".tinker/team.json";
   const TEAM_PERMISSIONS = [
     ["installMods","Install mods"], ["updateMods","Update / change versions"], ["deleteMods","Delete mods"],
     ["editServerConfig","Edit server settings"], ["editModConfig","Edit mod configuration"],
@@ -1401,21 +1401,35 @@
   }
 
   async function loadTeamStateFromServer(cfg) {
-    try {
-      // The direct file-download API is more reliable for hidden dot-files than a
-      // directory listing, which may omit them depending on the Crafty version.
-      const buffer = await downloadCraftyRawFileBuffer(cfg, TEAM_STATE_FILENAME);
-      const raw = new TextDecoder().decode(new Uint8Array(buffer));
-      try { return normalizeTeamState(JSON.parse(raw)); }
-      catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Repair " + TEAM_STATE_FILENAME + " in Crafty."); }
-    } catch (error) {
-      if (Number(error && error.status) === 404 || /HTTP 404|API_HANDLER_NOT_FOUND|no such file|file not found|ENOENT/i.test(String(error && error.message ? error.message : error))) return null;
-      throw error;
+    const candidates = [TEAM_STATE_FILENAME, ".tinker-team.json"];
+    let lastError = null;
+    for (const path of candidates) {
+      try {
+        const buffer = await downloadCraftyRawFileBuffer(cfg, path);
+        const raw = new TextDecoder().decode(new Uint8Array(buffer));
+        try { return normalizeTeamState(JSON.parse(raw)); }
+        catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Repair " + path + " in Crafty."); }
+      } catch (error) {
+        lastError = error;
+        const message = String(error && error.message ? error.message : error);
+        if (Number(error && error.status) === 404 || /HTTP 404|API_HANDLER_NOT_FOUND|no such file|file not found|ENOENT/i.test(message)) {
+          if (path !== candidates[candidates.length - 1]) continue;
+          return null;
+        }
+        throw error;
+      }
     }
+    if (lastError) throw lastError;
+    return null;
   }
   async function writeTeamStateToServer(cfg, state) {
     const raw = JSON.stringify(state, null, 2);
-    await uploadBufferToServer(cfg, ".", TEAM_STATE_FILENAME, encodeUtf8(raw));
+    const dir = ".tinker";
+    const created = await createCraftyFileEntry(cfg, ".", dir, true);
+    if (!(created.status >= 200 && created.status < 300) && !/FILE[_ ]EXISTS|file.*exists|already exists|exists.*file/i.test(String(created.raw || ""))) {
+      throw new Error("Could not create the shared Tinker settings folder (HTTP " + created.status + ")" + (created.raw ? " — " + created.raw.replace(/\s+/g," ").slice(0,220) : ""));
+    }
+    await uploadBufferToServer(cfg, dir, "team.json", encodeUtf8(raw));
   }
 
   function withTeamStateLock(action, work) {
