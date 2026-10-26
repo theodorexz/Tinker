@@ -1489,6 +1489,7 @@
     if (!teamAuthEnabled()) {
       entry.addedBy = value.username;
       upsertRegistry(entry);
+      installedMods = installedMods.map(item => item.filename === entry.filename ? Object.assign({}, item, {addedBy:value.username}) : item);
       return;
     }
     await mutateTeamState("mod attribution", function(state) {
@@ -6027,6 +6028,7 @@
         for (const change of changes) nextText = replaceServerPropertyText(nextText, change.key, change.value);
         await writeCraftyTextFile(cfg, "server.properties", nextText, Number(current.attributes?.modified_epoch || 0), false);
       });
+      await recordAudit("server.config.save", "Changed " + changes.map(change => change.key).join(", ") + ".", true);
       serverSettingsLoaded = false;
       await loadServerSettings(true);
       if (status) status.textContent = "Saved. Restart the Minecraft server to apply the settings.";
@@ -6064,6 +6066,7 @@
       });
       const preview = document.getElementById("serverIconPreview");
       if (preview) preview.innerHTML = '<img alt="Current server icon" src="data:image/png;base64,' + base64FromArrayBuffer(buffer) + '">';
+      await recordAudit("server.icon.upload", "Uploaded the server-icon.png file.", true);
       serverIconExists = true;
       if (button) button.textContent = "Update server icon";
       if (status) status.textContent = "Uploaded · restart server to apply";
