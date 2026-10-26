@@ -64,7 +64,7 @@ jobs:
           tagName: app-v__VERSION__
           releaseName: Tinker v__VERSION__
           releaseBody: |
-            ## Tinker 0.2.9
+            ## Tinker 0.2.10
 
             A cross-platform team-management and reliability release.
 
