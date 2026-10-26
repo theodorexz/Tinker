@@ -1343,6 +1343,562 @@
   let worldRegionFiles = [];
 
 
+  function teamAuthEnabled() {
+    return Boolean(teamState && teamState.enabled && Array.isArray(teamState.users) && teamState.users.length);
+  }
+
+  function hasTeamAccess() {
+    return !teamAuthEnabled() || Boolean(activeTeamUser);
+  }
+
+  function can(permission) {
+    if (!teamAuthEnabled()) return true;
+    if (!activeTeamUser || !activeTeamUser.enabled) return false;
+    const perms = activeTeamUser.permissions || {};
+    return perms[permission] === true || perms.admin === true;
+  }
+
+  function requirePermission(permission, action) {
+    if (can(permission)) return true;
+    toast("Your Tinker account is not allowed to " + String(action || permission) + ".", "warn");
+    return false;
+  }
+
+  function randomSaltBase64() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return base64FromArrayBuffer(bytes.buffer);
+  }
+
+  async function passwordDigest(password, saltBase64) {
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(String(password)), "PBKDF2", false, ["deriveBits"]
+    );
+    const salt = new Uint8Array(arrayBufferFromBase64(saltBase64));
+    const bits = await crypto.subtle.deriveBits(
+      {name:"PBKDF2", hash:"SHA-256", salt, iterations:210000}, key, 256
+    );
+    return base64FromArrayBuffer(bits);
+  }
+
+  async function makePasswordRecord(password) {
+    const salt = randomSaltBase64();
+    return {passwordSalt:salt, passwordHash:await passwordDigest(password,salt)};
+  }
+
+  function normalizeTeamState(state) {
+    const value = state && typeof state === "object" ? state : {};
+    return {
+      version:1,
+      enabled:Boolean(value.enabled),
+      createdAt:String(value.createdAt || ""),
+      users:Array.isArray(value.users) ? value.users : [],
+      audit:Array.isArray(value.audit) ? value.audit : [],
+      modAttribution:value.modAttribution && typeof value.modAttribution === "object" ? value.modAttribution : {}
+    };
+  }
+
+  async function loadTeamStateFromServer(cfg) {
+    const rootItems = await listCraftyDirectory(cfg, ".", null);
+    const exists = rootItems.some(item =>
+      String(basename(item.path || item.name) || "").toLowerCase() === TEAM_STATE_FILENAME.toLowerCase()
+    );
+    if (!exists) return null;
+    const result = await readCraftyTextFile(cfg, TEAM_STATE_FILENAME);
+    try { return normalizeTeamState(JSON.parse(result.content)); }
+    catch (_) { throw new Error("The shared team file exists but isn't valid JSON. Rename or repair " + TEAM_STATE_FILENAME + " in Crafty."); }
+  }
+
+  async function writeTeamStateToServer(cfg, state) {
+    const raw = JSON.stringify(state, null, 2);
+    await uploadBufferToServer(cfg, ".", TEAM_STATE_FILENAME, encodeUtf8(raw));
+  }
+
+  function withTeamStateLock(action, work) {
+    const run = async function() {
+      const cfg = getConfig();
+      if (!cfg.craftyUrl || !cfg.serverId || !cfg.apiToken) throw new Error("Crafty connection is not configured.");
+      await acquireServerMutationLock(cfg, "team " + action);
+      try { return await work(cfg); }
+      finally { await releaseServerMutationLock(); }
+    };
+    const task = teamStateWriteQueue.then(run, run);
+    teamStateWriteQueue = task.then(() => undefined, () => undefined);
+    return task;
+  }
+
+  async function mutateTeamState(action, mutator) {
+    const result = await withTeamStateLock(action, async function(cfg) {
+      const latest = await loadTeamStateFromServer(cfg);
+      if (!latest || !latest.enabled || !latest.users.length) {
+        throw new Error("Shared team accounts aren't set up on this Crafty server.");
+      }
+      const output = await mutator(latest);
+      await writeTeamStateToServer(cfg, latest);
+      teamState = latest;
+      if (activeTeamUser) {
+        activeTeamUser = teamState.users.find(u => u.username === activeTeamUser.username && u.enabled !== false) || null;
+      }
+      return output;
+    });
+    renderAdminPanel();
+    return result;
+  }
+
+  function activeUserLabel() {
+    return activeTeamUser ? String(activeTeamUser.username || "user") : "Local user";
+  }
+
+  async function recordAudit(action, detail, success) {
+    const event = {
+      timestamp:new Date().toISOString(),
+      username:activeUserLabel(),
+      minecraftUsername:String(activeTeamUser?.minecraftUsername || ""),
+      action:String(action || "action"),
+      detail:String(detail || ""),
+      success:success !== false
+    };
+    if (!teamAuthEnabled()) {
+      localAuditLog.unshift(event);
+      localAuditLog = localAuditLog.slice(0,200);
+      try { localStorage.setItem("tinkerLocalAudit:" + registryKey(getConfig()), JSON.stringify(localAuditLog)); } catch (_) {}
+      renderAuditLog();
+      return;
+    }
+    try {
+      await mutateTeamState("audit log", function(state) {
+        state.audit.unshift(event);
+        state.audit = state.audit.slice(0,500);
+      });
+    } catch (e) {
+      toast("Action completed, but its audit event couldn't be saved: " + (e?.message || e), "warn");
+    }
+  }
+
+  async function saveModAttribution(entry) {
+    if (!entry) return;
+    const path = normalizeServerPath(entry.filePath || entry.filename || "");
+    const filename = normalizeServerPath(entry.filename || "");
+    const value = {
+      username:activeUserLabel(),
+      minecraftUsername:String(activeTeamUser?.minecraftUsername || ""),
+      timestamp:new Date().toISOString(),
+      projectId:String(entry.projectId || ""),
+      title:String(entry.title || entry.filename || "")
+    };
+    if (!teamAuthEnabled()) {
+      entry.addedBy = value.username;
+      upsertRegistry(entry);
+      return;
+    }
+    await mutateTeamState("mod attribution", function(state) {
+      if (!state.modAttribution || typeof state.modAttribution !== "object") state.modAttribution = {};
+      if (path) state.modAttribution[path] = value;
+      if (filename) state.modAttribution[filename] = value;
+    });
+  }
+
+  function applyTeamAttributionToMods() {
+    const attribution = teamState && teamState.modAttribution ? teamState.modAttribution : {};
+    for (const entry of installedMods) {
+      const keys = [
+        normalizeServerPath(entry.filePath || ""),
+        normalizeServerPath(entry.filename || "")
+      ].filter(Boolean);
+      const match = keys.map(key => attribution[key]).find(Boolean);
+      if (match) {
+        entry.addedBy = String(match.username || "");
+        entry.addedByMinecraft = String(match.minecraftUsername || "");
+      }
+    }
+  }
+
+  function applyTheme(theme) {
+    let target = String(theme || "dark").toLowerCase();
+    if (target === "system") {
+      target = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    }
+    if (target !== "light") target = "dark";
+    currentTheme = target;
+    document.body.classList.toggle("theme-light", target === "light");
+    const toggle = document.getElementById("themeToggleBtn");
+    if (toggle) toggle.textContent = target === "light" ? "☾ Dark" : "☀ Light";
+    const select = document.getElementById("themeSelect");
+    if (select) select.value = theme === "system" ? "system" : target;
+  }
+
+  async function persistPreference(theme, sync) {
+    const selectedTheme = String(theme || "dark");
+    const syncEnabled = Boolean(sync);
+    try {
+      localStorage.setItem("tinkerLocalPreferences:" + registryKey(getConfig()), JSON.stringify({theme:selectedTheme,sync:false}));
+    } catch (_) {}
+    if (teamAuthEnabled() && activeTeamUser && syncEnabled) {
+      await mutateTeamState("save preferences", function(state) {
+        const user = state.users.find(u => u.username === activeTeamUser.username);
+        if (!user) throw new Error("Your Tinker account no longer exists.");
+        user.preferences = Object.assign({}, user.preferences || {}, {theme:selectedTheme,sync:true});
+      });
+    } else if (teamAuthEnabled() && activeTeamUser) {
+      await mutateTeamState("save local-only preference", function(state) {
+        const user = state.users.find(u => u.username === activeTeamUser.username);
+        if (!user) throw new Error("Your Tinker account no longer exists.");
+        user.preferences = Object.assign({}, user.preferences || {}, {sync:false});
+      });
+    }
+    applyTheme(selectedTheme);
+    const status = document.getElementById("preferencesStatus");
+    if (status) status.textContent = syncEnabled && teamAuthEnabled() ? "Saved to your shared Tinker account." : "Saved only on this device.";
+  }
+
+  function finishTeamSession(user) {
+    activeTeamUser = user || null;
+    teamAccessPending = false;
+    const badge = document.getElementById("activeUserBadge");
+    if (badge) {
+      badge.hidden = !activeTeamUser;
+      badge.textContent = activeTeamUser ? "⬛ " + activeTeamUser.username : "";
+    }
+    const prefs = activeTeamUser?.preferences || {};
+    let theme = prefs.theme || "dark";
+    if (prefs.sync === false) {
+      try {
+        const local = JSON.parse(localStorage.getItem("tinkerLocalPreferences:" + registryKey(getConfig()) || "{}"));
+        if (local && local.theme) theme = local.theme;
+      } catch (_) {}
+    }
+    applyTheme(theme);
+    const syncToggle = document.getElementById("syncPreferencesToggle");
+    if (syncToggle) syncToggle.checked = prefs.sync !== false;
+    setTabsUnlocked(connectionConfigured());
+    renderAdminPanel();
+    renderAuditLog();
+    updateConnectionCards();
+  }
+
+  function makeEmptyTeamState() {
+    return {version:1,enabled:true,createdAt:new Date().toISOString(),users:[],audit:[],modAttribution:{}};
+  }
+
+  async function createFirstTeamAdmin(cfg, username, password, minecraftUsername) {
+    const cleanName = String(username || "").trim();
+    if (!/^[A-Za-z0-9_.-]{3,32}$/.test(cleanName)) throw new Error("Username must be 3–32 characters and use letters, numbers, dots, dashes, or underscores.");
+    if (String(password || "").length < 8) throw new Error("Use a password with at least 8 characters.");
+    if (minecraftUsername && !/^[A-Za-z0-9_]{1,16}$/.test(minecraftUsername)) throw new Error("Minecraft usernames can contain up to 16 letters, numbers, and underscores.");
+    const passwordRecord = await makePasswordRecord(password);
+    const user = {
+      username:cleanName,
+      minecraftUsername:String(minecraftUsername || "").trim(),
+      enabled:true,
+      createdAt:new Date().toISOString(),
+      createdBy:cleanName,
+      permissions:Object.fromEntries(TEAM_PERMISSIONS.map(([key]) => [key,true])),
+      preferences:{theme:"dark",sync:true},
+      passwordSalt:passwordRecord.passwordSalt,
+      passwordHash:passwordRecord.passwordHash
+    };
+    await withTeamStateLock("initialize accounts", async function(serverCfg) {
+      const existing = await loadTeamStateFromServer(serverCfg);
+      if (existing && existing.enabled && existing.users.length) throw new Error("Team accounts were set up by another user while this dialog was open. Sign in with that account.");
+      const state = makeEmptyTeamState();
+      state.users.push(user);
+      state.audit.push({
+        timestamp:new Date().toISOString(),username:cleanName,minecraftUsername:user.minecraftUsername,
+        action:"team.initialize",detail:"Created the first Tinker administrator account.",success:true
+      });
+      await writeTeamStateToServer(serverCfg,state);
+      teamState = state;
+    });
+    teamStateServerKey = registryKey(cfg);
+    finishTeamSession(user);
+    toast("Shared Tinker team accounts are ready.", "ok");
+  }
+
+  function openTeamSetupModal(cfg) {
+    return new Promise(resolve => {
+      openModal(function(body) {
+        body.innerHTML =
+          '<h3>Set up Tinker team accounts?</h3>' +
+          '<p class="muted">The first account becomes the administrator. Accounts, permissions, preferences and the audit log are saved on the selected Crafty server so your team can use them from other devices.</p>' +
+          '<div class="wip-warning"><strong>Security note:</strong> this is an application-level account gate. Each person still needs an appropriate Crafty API connection; use Crafty\'s own user and token permissions for actual server security.</div>' +
+          '<form id="teamSetupForm" class="config-editor" style="margin-top:1rem;">' +
+          '<label>Administrator username<input id="teamSetupUsername" required minlength="3" maxlength="32" autocomplete="username" value="admin"></label>' +
+          '<label>Minecraft username (optional)<input id="teamSetupMinecraftName" maxlength="16" autocomplete="off" placeholder="Steve"></label>' +
+          '<label>Password<input id="teamSetupPassword" type="password" required minlength="8" autocomplete="new-password"></label>' +
+          '<div class="server-settings-actions"><button class="btn primary" type="submit">Create admin account</button><button class="btn ghost" id="teamSkipSetupBtn" type="button">Continue without accounts</button></div>' +
+          '<div class="error-text" id="teamSetupError"></div></form>';
+        body.querySelector("#teamSkipSetupBtn").addEventListener("click",function(){
+          try { localStorage.setItem("tinkerTeamSetupSkipped:" + registryKey(cfg),"1"); } catch (_) {}
+          teamState = {version:1,enabled:false,users:[],audit:[],modAttribution:{}};
+          teamStateServerKey = registryKey(cfg);
+          finishTeamSession(null);
+          closeModal();
+          resolve(false);
+        });
+        body.querySelector("#teamSetupForm").addEventListener("submit",async function(event){
+          event.preventDefault();
+          const err = body.querySelector("#teamSetupError");
+          const button = body.querySelector('button[type="submit"]');
+          button.disabled = true;
+          try {
+            await createFirstTeamAdmin(cfg,body.querySelector("#teamSetupUsername").value,body.querySelector("#teamSetupPassword").value,body.querySelector("#teamSetupMinecraftName").value);
+            closeModal();
+            resolve(true);
+          } catch(e) {
+            err.textContent = e?.message || String(e);
+            button.disabled = false;
+          }
+        });
+      },{wide:true});
+    });
+  }
+
+  function openTeamLoginModal(cfg) {
+    return new Promise(resolve => {
+      openModal(function(body) {
+        body.innerHTML =
+          '<h3>Sign in to Tinker</h3><p class="muted">This Crafty server has shared Tinker accounts enabled.</p>' +
+          '<form id="teamLoginForm" class="config-editor">' +
+          '<label>Username<input id="teamLoginUsername" required autocomplete="username"></label>' +
+          '<label>Password<input id="teamLoginPassword" type="password" required autocomplete="current-password"></label>' +
+          '<div class="server-settings-actions"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost" id="teamLoginReloadBtn" type="button">Reload team file</button></div>' +
+          '<div class="error-text" id="teamLoginError"></div></form>';
+        body.querySelector("#teamLoginReloadBtn").addEventListener("click",async function(){
+          const err=body.querySelector("#teamLoginError");
+          try {
+            const state=await loadTeamStateFromServer(cfg);
+            if(state&&state.enabled&&state.users.length){teamState=state;err.textContent="Reloaded shared accounts. Enter your credentials to sign in.";}
+            else err.textContent="No enabled team accounts were found.";
+          }catch(e){err.textContent=e?.message||String(e);}
+        });
+        body.querySelector("#teamLoginForm").addEventListener("submit",async function(event){
+          event.preventDefault();
+          const err=body.querySelector("#teamLoginError");
+          const button=body.querySelector('button[type="submit"]');
+          button.disabled=true;
+          try{
+            const username=String(body.querySelector("#teamLoginUsername").value||"").trim();
+            const password=String(body.querySelector("#teamLoginPassword").value||"");
+            const user=teamState.users.find(u=>u.username.toLowerCase()===username.toLowerCase()&&u.enabled!==false);
+            if(!user) throw new Error("Invalid username or password.");
+            const digest=await passwordDigest(password,user.passwordSalt||"");
+            if(digest!==user.passwordHash) throw new Error("Invalid username or password.");
+            activeTeamUser=user;
+            teamStateServerKey=registryKey(cfg);
+            finishTeamSession(user);
+            closeModal();
+            resolve(true);
+            recordAudit("auth.login","Signed in to Tinker.",true).catch(()=>{});
+          }catch(e){
+            err.textContent=e?.message||"Sign in failed.";
+            button.disabled=false;
+          }
+        });
+      },{wide:false});
+    });
+  }
+
+  async function initializeTeamAccess(cfg) {
+    const key=registryKey(cfg);
+    if(teamAuthResolving)return false;
+    if(teamStateServerKey===key&&hasTeamAccess()&&!teamAccessPending)return true;
+    teamAuthResolving=true;
+    teamAccessPending=true;
+    activeTeamUser=null;
+    setTabsUnlocked(false);
+    try {
+      const state=await loadTeamStateFromServer(cfg);
+      teamState=state||{version:1,enabled:false,users:[],audit:[],modAttribution:{}};
+      teamStateServerKey=key;
+      if(teamState.enabled&&teamState.users.length){
+        const ok=await openTeamLoginModal(cfg);
+        return ok;
+      }
+      const skipped=(()=>{try{return localStorage.getItem("tinkerTeamSetupSkipped:"+key)==="1";}catch(_){return false;}})();
+      if(!skipped){
+        await openTeamSetupModal(cfg);
+        return hasTeamAccess();
+      }
+      finishTeamSession(null);
+      return true;
+    }catch(e){
+      teamState={version:1,enabled:true,users:[],audit:[],modAttribution:{}};
+      teamStateServerKey=key;
+      openModal(function(body){
+        body.innerHTML='<h3>Could not load Tinker team settings</h3><p class="error-text">'+escapeHtml(e?.message||String(e))+'</p><p class="muted">Tinker has kept the other tabs locked because it could not verify the shared account state.</p><button class="btn primary" id="retryTeamLoadBtn" type="button">Retry</button>';
+        body.querySelector("#retryTeamLoadBtn").addEventListener("click",async function(){closeModal();teamAuthResolving=false;await initializeTeamAccess(getConfig());});
+      });
+      return false;
+    }finally{
+      teamAuthResolving=false;
+      if(!teamAccessPending)setTabsUnlocked(connectionConfigured());
+    }
+  }
+
+  function renderPermissionCheckboxes(container, permissions) {
+    if(!container)return;
+    container.innerHTML=TEAM_PERMISSIONS.map(([key,label])=>
+      '<label class="permission-toggle"><input type="checkbox" data-permission-key="'+key+'" '+(permissions&&permissions[key]===true?"checked":"")+'><span>'+escapeHtml(label)+'</span></label>'
+    ).join("");
+  }
+
+  function readPermissionCheckboxes(container) {
+    const result={};
+    if(container)container.querySelectorAll("[data-permission-key]").forEach(el=>result[el.dataset.permissionKey]=Boolean(el.checked));
+    return result;
+  }
+
+  function renderAuditLog() {
+    const el=document.getElementById("adminAuditList");
+    if(!el)return;
+    let audit=teamAuthEnabled()?teamState.audit:localAuditLog;
+    if(teamAuthEnabled()&&!can("viewAudit")){
+      el.innerHTML='<div class="empty-state small">Your Tinker account cannot view the audit log.</div>';
+      return;
+    }
+    audit=(Array.isArray(audit)?audit:[]).slice(0,250);
+    if(!audit.length){el.innerHTML='<div class="empty-state small">No audit events yet.</div>';return;}
+    el.innerHTML=audit.map(event=>
+      '<div class="admin-audit-row"><div class="admin-audit-time">'+escapeHtml(new Date(event.timestamp||Date.now()).toLocaleString())+'</div><div><div class="admin-audit-title">'+escapeHtml(event.username||"user")+' · '+escapeHtml(event.action||"action")+(event.success===false?' · failed':'')+'</div><div class="admin-audit-detail">'+escapeHtml(event.detail||"")+'</div></div></div>'
+    ).join("");
+  }
+
+  function renderAdminPanel() {
+    const badge=document.getElementById("teamModeBadge");
+    const usersEl=document.getElementById("adminUserList");
+    const createForm=document.getElementById("adminCreateUserForm");
+    const canManage=can("manageUsers");
+    if(badge)badge.textContent=teamAuthEnabled()?"Team accounts enabled":"Team accounts not enabled";
+    if(createForm)createForm.hidden= !teamAuthEnabled() || !canManage;
+    const createContainer=document.getElementById("adminNewPermissions");
+    if(createContainer&&!createContainer.dataset.initialized){
+      renderPermissionCheckboxes(createContainer,{});
+      createContainer.dataset.initialized="true";
+    }
+    if(usersEl){
+      if(!teamAuthEnabled()){
+        usersEl.innerHTML='<div class="empty-state small">Team accounts are not enabled on this server.</div><button class="btn primary" type="button" id="enableTeamAccountsBtn">Enable team accounts</button>';
+        usersEl.querySelector("#enableTeamAccountsBtn").addEventListener("click",async function(){
+          try{await openTeamSetupModal(getConfig());renderAdminPanel();}catch(e){toast("Couldn't set up team accounts: "+(e?.message||e),"error");}
+        });
+      }else if(!canManage){
+        usersEl.innerHTML='<div class="empty-state small">Your Tinker account cannot manage users.</div>';
+      }else if(!teamState.users.length){
+        usersEl.innerHTML='<div class="empty-state small">No team users found.</div>';
+      }else{
+        usersEl.innerHTML=teamState.users.map(user=>
+          '<div class="admin-user-row"><span class="admin-user-avatar">⬛</span><div class="admin-user-main"><div class="admin-user-name">'+escapeHtml(user.username)+'</div><div class="admin-user-meta">'+escapeHtml(user.minecraftUsername||"No Minecraft username")+' · '+(user.enabled===false?"disabled":"active")+' · '+(user.permissions&&user.permissions.manageUsers?"admin":"member")+'</div></div><button class="btn small team-user-edit-btn" type="button" data-team-user="'+escapeHtml(user.username)+'">Manage</button></div>'
+        ).join("");
+        usersEl.querySelectorAll(".team-user-edit-btn").forEach(btn=>btn.addEventListener("click",()=>openTeamUserEditor(teamState.users.find(u=>u.username===btn.dataset.teamUser))));
+      }
+    }
+    renderAuditLog();
+  }
+
+  async function addTeamUser(event) {
+    event.preventDefault();
+    if(!requirePermission("manageUsers","manage team accounts"))return;
+    const status=document.getElementById("adminCreateUserStatus");
+    const button=document.querySelector("#adminCreateUserForm button[type='submit']");
+    const username=String(document.getElementById("adminNewUsername").value||"").trim();
+    const mcName=String(document.getElementById("adminNewMinecraftName").value||"").trim();
+    const password=String(document.getElementById("adminNewPassword").value||"");
+    if(!/^[A-Za-z0-9_.-]{3,32}$/.test(username)){if(status)status.textContent="Use 3–32 letters, numbers, dots, dashes, or underscores.";return;}
+    if(password.length<8){if(status)status.textContent="Password must be at least 8 characters.";return;}
+    if(mcName&&!/^[A-Za-z0-9_]{1,16}$/.test(mcName)){if(status)status.textContent="Invalid Minecraft username.";return;}
+    if(button){button.disabled=true;button.textContent="Creating…";}
+    try{
+      const passwordRecord=await makePasswordRecord(password);
+      const user={username,minecraftUsername:mcName,enabled:true,createdAt:new Date().toISOString(),createdBy:activeUserLabel(),permissions:readPermissionCheckboxes(document.getElementById("adminNewPermissions")),preferences:{theme:"dark",sync:true},passwordSalt:passwordRecord.passwordSalt,passwordHash:passwordRecord.passwordHash};
+      await mutateTeamState("create user",function(state){
+        if(state.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))throw new Error("That username already exists.");
+        state.users.push(user);
+        state.audit.unshift({timestamp:new Date().toISOString(),username:activeUserLabel(),minecraftUsername:String(activeTeamUser?.minecraftUsername||""),action:"user.create",detail:"Created user "+username+".",success:true});
+        state.audit=state.audit.slice(0,500);
+      });
+      document.getElementById("adminCreateUserForm").reset();
+      renderPermissionCheckboxes(document.getElementById("adminNewPermissions"),{});
+      if(status)status.textContent="User created.";
+      toast("Created Tinker user "+username,"ok");
+    }catch(e){
+      if(status)status.textContent=e?.message||String(e);
+      toast("Couldn't create user: "+(e?.message||e),"error");
+    }finally{if(button){button.disabled=false;button.textContent="Create user";}}
+  }
+
+  function openTeamUserEditor(user) {
+    if(!user||!requirePermission("manageUsers","manage team accounts"))return;
+    openModal(function(body){
+      body.innerHTML='<h3>Manage '+escapeHtml(user.username)+'</h3><form id="teamUserEditForm" class="config-editor"><label>Minecraft username<input id="teamEditMinecraftName" maxlength="16" value="'+escapeHtml(user.minecraftUsername||"")+'" placeholder="Optional"></label><label class="filters-row"><input id="teamEditEnabled" type="checkbox" '+(user.enabled===false?"":"checked")+' style="width:auto"> Account enabled</label><label>Reset password (leave blank to keep current)<input id="teamEditPassword" type="password" minlength="8" autocomplete="new-password"></label><div class="muted">Permissions</div><div class="permission-grid" id="teamEditPermissions"></div><div class="server-settings-actions"><button class="btn primary" type="submit">Save user</button><button class="btn danger" type="button" id="teamDeleteUserBtn">Delete user</button><button class="btn ghost" type="button" id="teamEditCancelBtn">Cancel</button></div><div class="error-text" id="teamEditError"></div></form>';
+      renderPermissionCheckboxes(body.querySelector("#teamEditPermissions"),user.permissions||{});
+      body.querySelector("#teamEditCancelBtn").addEventListener("click",closeModal);
+      body.querySelector("#teamUserEditForm").addEventListener("submit",async function(event){
+        event.preventDefault();
+        const error=body.querySelector("#teamEditError");
+        const minecraftUsername=String(body.querySelector("#teamEditMinecraftName").value||"").trim();
+        const password=String(body.querySelector("#teamEditPassword").value||"");
+        if(minecraftUsername&&!/^[A-Za-z0-9_]{1,16}$/.test(minecraftUsername)){error.textContent="Invalid Minecraft username.";return;}
+        if(password&&password.length<8){error.textContent="New password must be at least 8 characters.";return;}
+        try{
+          const permissions=readPermissionCheckboxes(body.querySelector("#teamEditPermissions"));
+          let passwordRecord=null;if(password)passwordRecord=await makePasswordRecord(password);
+          await mutateTeamState("edit user",function(state){
+            const target=state.users.find(u=>u.username===user.username);if(!target)throw new Error("User no longer exists.");
+            target.minecraftUsername=minecraftUsername;target.enabled=Boolean(body.querySelector("#teamEditEnabled").checked);target.permissions=permissions;
+            if(passwordRecord){target.passwordSalt=passwordRecord.passwordSalt;target.passwordHash=passwordRecord.passwordHash;}
+            state.audit.unshift({timestamp:new Date().toISOString(),username:activeUserLabel(),action:"user.edit",detail:"Updated user "+user.username+".",success:true});state.audit=state.audit.slice(0,500);
+            if(!state.users.some(u=>u.enabled!==false&&u.permissions?.manageUsers))throw new Error("At least one enabled administrator must remain.");
+          });
+          closeModal();renderAdminPanel();toast("Updated "+user.username,"ok");
+          if(activeTeamUser&&activeTeamUser.username===user.username&&activeTeamUser.enabled===false){activeTeamUser=null;finishTeamSession(null);openTeamLoginModal(getConfig());}
+        }catch(e){error.textContent=e?.message||String(e);}
+      });
+      body.querySelector("#teamDeleteUserBtn").addEventListener("click",async function(){
+        if(!confirm("Delete the Tinker account "+user.username+"?"))return;
+        try{
+          await mutateTeamState("delete user",function(state){
+            state.users=state.users.filter(u=>u.username!==user.username);
+            state.audit.unshift({timestamp:new Date().toISOString(),username:activeUserLabel(),action:"user.delete",detail:"Deleted user "+user.username+".",success:true});state.audit=state.audit.slice(0,500);
+            if(!state.users.some(u=>u.enabled!==false&&u.permissions?.manageUsers))throw new Error("At least one enabled administrator must remain.");
+          });
+          closeModal();renderAdminPanel();toast("Deleted user "+user.username,"ok");
+          if(activeTeamUser&&activeTeamUser.username===user.username){activeTeamUser=null;teamAccessPending=true;setTabsUnlocked(false);openTeamLoginModal(getConfig());}
+        }catch(e){body.querySelector("#teamEditError").textContent=e?.message||String(e);}
+      });
+    },{wide:true});
+  }
+
+  async function refreshTeamState() {
+    const cfg=getConfig();
+    const state=await loadTeamStateFromServer(cfg);
+    teamState=state||{version:1,enabled:false,users:[],audit:[],modAttribution:{}};
+    teamStateServerKey=registryKey(cfg);
+    renderAdminPanel();
+  }
+
+  async function saveTeamPreferences() {
+    const theme=document.getElementById("themeSelect").value;
+    const sync=document.getElementById("syncPreferencesToggle").checked;
+    try{
+      await persistPreference(theme,sync);
+      toast("Preferences saved","ok");
+      if(teamAuthEnabled()&&activeTeamUser)recordAudit("preferences.save","Saved appearance preferences.",true).catch(()=>{});
+    }catch(e){toast("Couldn't save preferences: "+(e?.message||e),"error");}
+  }
+
+  async function signOutTeamUser() {
+    if(activeTeamUser)recordAudit("auth.logout","Signed out of Tinker.",true).catch(()=>{});
+    activeTeamUser=null;
+    if(teamAuthEnabled()){
+      teamAccessPending=true;
+      setTabsUnlocked(false);
+      openTeamLoginModal(getConfig());
+    }else{
+      applyTheme("dark");
+      setTabsUnlocked(connectionConfigured());
+    }
+  }
+
   // ---------- small helpers ----------
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
