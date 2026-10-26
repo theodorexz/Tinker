@@ -5819,6 +5819,7 @@
           });
           rawText = savedResult.content;
           openedModifiedEpoch = Number(savedResult.attributes?.modified_epoch || 0);
+          await recordAudit("config.save", "Saved " + file.path + ".", true);
           if (isJson) {
             jsonData = JSON.parse(rawText);
             jsonValid = true;
