@@ -1437,6 +1437,10 @@
       if (!latest || !latest.enabled || !latest.users.length) {
         throw new Error("Shared team accounts aren't set up on this Crafty server.");
       }
+      if (/^(create user|edit user|delete user)$/i.test(String(action || ""))) {
+        const actor = activeTeamUser && latest.users.find(u => u.username === activeTeamUser.username && u.enabled !== false);
+        if (!actor || !(actor.permissions && actor.permissions.manageUsers)) throw new Error("Your Tinker account no longer has permission to manage users.");
+      }
       const output = await mutator(latest);
       await writeTeamStateToServer(cfg, latest);
       teamState = latest;
@@ -2368,8 +2372,8 @@
       toast("Sign in to Tinker before opening other tabs.", "warn");
       return;
     }
-    if (name === "admin" && !can("manageUsers")) {
-      toast("Your Tinker account cannot manage team users.", "warn");
+    if (name === "admin" && !can("manageUsers") && !can("viewAudit")) {
+      toast("Your Tinker account cannot manage users or view the audit log.", "warn");
       return;
     }
     if (name !== "connection" && !ready) {
@@ -4712,7 +4716,7 @@
         <div class="installed-main">
           <div class="installed-title">${escapeHtml(entry.title || cleanFilenameForSearch(entry.filename) || entry.filename)} ${entry.isDependency ? `<span class="dependency-badge">Dependency</span>` : ""}</div>
           <div class="installed-meta">${escapeHtml(versionText + updateText)} · ${escapeHtml(formatBytes(entry.fileSize))}${escapeHtml(matchText)}</div>
-          ${entry.addedBy ? `<div class="installed-detection">Added by ⬛ ${escapeHtml(entry.addedBy)}</div>` : ""}
+          <div class="installed-detection" title="${entry.addedBy ? "Recorded by Tinker" : "This mod predates Tinker attribution or has not been attributed yet."}">Added by ⬛ ${escapeHtml(entry.addedBy || "Unknown")}</div>
           <div class="installed-file" title="${escapeHtml(entry.filePath || entry.filename)}">${escapeHtml(entry.filePath || entry.filename || "")}</div>
           ${entry.projectId && entry.confidence ? `<div class="installed-detection" title="How this mod was identified">${escapeHtml(entry.detectionSource || "detected")} · ${escapeHtml(String(entry.confidence))}% confidence${entry.metadataId ? " · " + escapeHtml(entry.metadataId) : ""}${entry.localIconPath ? " · local icon: " + escapeHtml(entry.localIconPath) : ""}</div>` : (entry.jarMetadata ? `<div class="installed-detection" title="Read from inside this JAR">JAR metadata: ${escapeHtml(entry.jarMetadata.id || entry.jarMetadata.name || "detected")}${entry.jarMetadata.version ? " · " + escapeHtml(entry.jarMetadata.version) : ""}</div>` : "")}
           ${!entry.projectId ? `<div class="installed-unmatched-reason">${entry.hashError ? "Couldn’t read the JAR bytes from Crafty" : entry.metadataError ? "Couldn’t parse the JAR metadata" : "No exact Modrinth hash/metadata match"}</div><button class="installed-link-btn link-mod-btn" type="button">Find on Modrinth</button>` : ""}
@@ -7137,7 +7141,11 @@
     const holder = document.getElementById("terminalSuggestions");
     if (!holder) return;
     const query = String(value || "").trim().replace(/^\//, "").toLowerCase();
-    terminalSuggestions = TERMINAL_COMMAND_TEMPLATES.filter(item => !query || item.toLowerCase().startsWith(query) || item.toLowerCase().includes(" " + query)).slice(0,8);
+    const playerNames = (Array.isArray(playersData) ? playersData : []).map(player => String(player.name || "")).filter(name => name && !/^Player /.test(name));
+    const dynamicPlayerCommands = [];
+    playerNames.forEach(name => { ["whitelist add ","whitelist remove ","op ","deop ","kick ","ban ","pardon ","tp "].forEach(prefix => dynamicPlayerCommands.push(prefix + name)); });
+    const allTemplates = TERMINAL_COMMAND_TEMPLATES.concat(dynamicPlayerCommands);
+    terminalSuggestions = allTemplates.filter(item => !query || item.toLowerCase().startsWith(query) || item.toLowerCase().includes(" " + query)).slice(0,8);
     terminalSuggestionIndex = -1;
     holder.innerHTML = "";
     if (!query || !terminalSuggestions.length) { holder.hidden = true; return; }
