@@ -1756,7 +1756,7 @@
   async function initializeTeamAccess(cfg) {
     const key=registryKey(cfg);
     if(teamAuthResolving)return false;
-    if(teamStateServerKey===key&&hasTeamAccess()&&!teamAccessPending)return true;
+    if(teamStateServerKey===key&&hasTeamAccess())return true;
     teamAuthResolving=true;
     teamAccessPending=true;
     activeTeamUser=null;
