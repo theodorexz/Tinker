@@ -1752,6 +1752,9 @@
   function renderAuditLog() {
     const el=document.getElementById("adminAuditList");
     if(!el)return;
+    if(!teamAuthEnabled()){
+      try{localAuditLog=JSON.parse(localStorage.getItem("tinkerLocalAudit:"+registryKey(getConfig()))||"[]");if(!Array.isArray(localAuditLog))localAuditLog=[];}catch(_){localAuditLog=[];}
+    }
     let audit=teamAuthEnabled()?teamState.audit:localAuditLog;
     if(teamAuthEnabled()&&!can("viewAudit")){
       el.innerHTML='<div class="empty-state small">Your Tinker account cannot view the audit log.</div>';
@@ -2545,6 +2548,12 @@
     renderServerState();
     updateConnectionCards();
     renderSidebar();
+    try{
+      const localPrefs=JSON.parse(localStorage.getItem("tinkerLocalPreferences:"+registryKey(getConfig()))||"{}");
+      if(localPrefs.theme)applyTheme(localPrefs.theme);
+      const localAudit=JSON.parse(localStorage.getItem("tinkerLocalAudit:"+registryKey(getConfig())||"[]"));
+      if(Array.isArray(localAudit))localAuditLog=localAudit;
+    }catch(_){}
   })();
 
   // ---------- server list ----------
@@ -3082,6 +3091,34 @@
     document.querySelectorAll("#serverStartBtn, #serverStopBtn").forEach(btn => { if (!can("controlServer")) { btn.disabled = true; btn.title = "Your Tinker account cannot control the server"; } });
     document.querySelectorAll("#terminalSendBtn").forEach(btn => { if (!can("runCommands")) { btn.disabled = true; btn.title = "Your Tinker account cannot run commands"; } });
     document.querySelectorAll("#worldDownloadSelectedBtn, #worldDownloadArchiveBtn").forEach(btn => { if (!can("manageWorld")) { btn.disabled = true; btn.title = "Your Tinker account cannot export world files"; } });
+    const stoppedMutationLocked = locked;
+    document.querySelectorAll("#serverSettingsSaveBtn, #serverIconUploadBtn, #openWhitelistEditorBtn").forEach(btn => {
+      btn.disabled = !can("editServerConfig") || stoppedMutationLocked || (btn.id === "serverIconUploadBtn" && !document.getElementById("serverIconInput")?.files?.length);
+      if (!can("editServerConfig")) btn.title = "Your Tinker account cannot edit server configuration";
+    });
+    document.querySelectorAll("#configConfigureBtn, #configStructuredSaveBtn, #jsonHeroSaveBtn, #configSaveFileBtn").forEach(btn => {
+      btn.disabled = !can("editModConfig") || stoppedMutationLocked;
+      if (!can("editModConfig")) btn.title = "Your Tinker account cannot edit mod configuration";
+    });
+    const startBtn = document.getElementById("serverStartBtn");
+    const stopBtn = document.getElementById("serverStopBtn");
+    if (startBtn) {
+      startBtn.disabled = !can("controlServer") || !serverState.known || serverState.running || serverState.updating;
+      startBtn.title = can("controlServer") ? "Start the Minecraft server" : "Your Tinker account cannot control the server";
+    }
+    if (stopBtn) {
+      stopBtn.disabled = !can("controlServer") || !serverState.known || !serverState.running || serverState.updating;
+      stopBtn.title = can("controlServer") ? "Stop the Minecraft server" : "Your Tinker account cannot control the server";
+    }
+    const terminalSend = document.getElementById("terminalSendBtn");
+    if (terminalSend && !terminalSend.dataset.sending) {
+      terminalSend.disabled = !can("runCommands");
+      if (!can("runCommands")) terminalSend.title = "Your Tinker account cannot run terminal commands";
+    }
+    document.querySelectorAll("#worldDownloadSelectedBtn, #worldDownloadArchiveBtn").forEach(btn => {
+      btn.disabled = !can("manageWorld") || stoppedMutationLocked;
+      if (!can("manageWorld")) btn.title = "Your Tinker account cannot export world files";
+    });
     updateConnectionCards();
   }
 
