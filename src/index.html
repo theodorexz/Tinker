@@ -643,6 +643,8 @@
   .admin-user-list { display:flex; flex-direction:column; gap:.55rem; margin-top:.8rem; }
   .admin-user-row { border:1px solid var(--border-soft); border-radius:8px; padding:.7rem; display:flex; align-items:center; gap:.6rem; }
   .admin-user-avatar { display:flex; flex:none; width:38px; height:38px; border-radius:50%; background:var(--bg-raised); align-items:center; justify-content:center; font-size:1.2rem; }
+  .admin-user-avatar img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+  .admin-user-avatar img[hidden] { display:none !important; }
   .admin-user-main { flex:1; min-width:0; }
   .admin-user-name { font-weight:700; font-size:.82rem; overflow-wrap:anywhere; }
   .admin-user-meta { font-size:.68rem; color:var(--text-faint); margin-top:.2rem; }
@@ -1820,6 +1822,31 @@
     ).join("");
   }
 
+  async function loadTeamUserAvatar(container, user) {
+    if (!container || !user || !user.minecraftUsername) return;
+    const img = container.querySelector("img");
+    const fallback = container.querySelector("span");
+    if (!img || !fallback) return;
+    try {
+      const url = "https://api.mojang.com/users/profiles/minecraft/" + encodeURIComponent(user.minecraftUsername);
+      const response = nativeBridgeAvailable()
+        ? await nativeHttpFetch(url,{method:"GET",headers:{"Accept":"application/json"}},false)
+        : await fetch(url,{method:"GET",headers:{"Accept":"application/json"},credentials:"omit"});
+      if (!response.ok) return;
+      const profile = await response.json();
+      const uuid = String(profile.id || "").replace(/-/g,"").toLowerCase();
+      if (!/^[0-9a-f]{32}$/.test(uuid)) return;
+      const skinUuid = await resolveOfficialPlayerSkinUuid(uuid);
+      if (!skinUuid || !container.isConnected) return;
+      img.onload = () => { img.hidden = false; fallback.hidden = true; };
+      img.onerror = () => { img.hidden = true; fallback.hidden = false; };
+      img.src = "https://mc-heads.net/avatar/" + encodeURIComponent(skinUuid) + "/64";
+    } catch (_) {
+      img.hidden = true;
+      fallback.hidden = false;
+    }
+  }
+
   function renderAdminPanel() {
     const badge=document.getElementById("teamModeBadge");
     const usersEl=document.getElementById("adminUserList");
@@ -1844,9 +1871,13 @@
         usersEl.innerHTML='<div class="empty-state small">No team users found.</div>';
       }else{
         usersEl.innerHTML=teamState.users.map(user=>
-          '<div class="admin-user-row"><span class="admin-user-avatar">⬛</span><div class="admin-user-main"><div class="admin-user-name">'+escapeHtml(user.username)+'</div><div class="admin-user-meta">'+escapeHtml(user.minecraftUsername||"No Minecraft username")+' · '+(user.enabled===false?"disabled":"active")+' · '+(user.permissions&&user.permissions.manageUsers?"admin":"member")+'</div></div><button class="btn small team-user-edit-btn" type="button" data-team-user="'+escapeHtml(user.username)+'">Manage</button></div>'
+          '<div class="admin-user-row" data-team-username="'+escapeHtml(user.username)+'"><span class="admin-user-avatar" data-team-avatar><span>⬛</span><img hidden alt="Minecraft avatar"></span><div class="admin-user-main"><div class="admin-user-name">'+escapeHtml(user.username)+'</div><div class="admin-user-meta">'+escapeHtml(user.minecraftUsername||"No Minecraft username")+' · '+(user.enabled===false?"disabled":"active")+' · '+(user.permissions&&user.permissions.manageUsers?"admin":"member")+'</div></div><button class="btn small team-user-edit-btn" type="button" data-team-user="'+escapeHtml(user.username)+'">Manage</button></div>'
         ).join("");
         usersEl.querySelectorAll(".team-user-edit-btn").forEach(btn=>btn.addEventListener("click",()=>openTeamUserEditor(teamState.users.find(u=>u.username===btn.dataset.teamUser))));
+        usersEl.querySelectorAll(".admin-user-row").forEach(row=>{
+          const user=teamState.users.find(item=>item.username===row.dataset.teamUsername);
+          if(user)loadTeamUserAvatar(row.querySelector("[data-team-avatar]"),user);
+        });
       }
     }
     renderAuditLog();
